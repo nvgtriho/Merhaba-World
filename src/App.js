@@ -15,13 +15,12 @@ import {
   Route,
   Save,
   SearchCheck,
-  ShieldCheck,
   Trash2,
   Users,
 } from "https://esm.sh/lucide-react@0.468.0?dev&deps=react@18.3.1";
 import { createMapLinks } from "./lib/maps.js";
 import { createIndexedDbStore } from "./lib/offlineStore.js";
-import { compareWeatherSources, summarizeWeather, turkeyWeatherSources } from "./lib/weather.js";
+import { compareWeatherSources, turkeyWeatherSources } from "./lib/weather.js";
 import { createSupabaseAdapter } from "./lib/supabaseAdapter.js";
 import { seedTrip } from "./data/tripSeed.js";
 import { turkeyPhrases } from "./data/turkishTemplate.js";
@@ -37,10 +36,7 @@ function App() {
   const selectedDay = trip.days.find((day) => day.date === selectedDate) ?? trip.days[0];
   const dayItems = trip.items.filter((item) => item.date === selectedDay.date);
   const currentPlace = trip.places.find((place) => selectedDay.city.includes(place.city)) ?? trip.places[0];
-  const weatherSummary = summarizeWeather(selectedDay.weatherSnapshots);
   const weatherReport = compareWeatherSources(selectedDay.weatherSnapshots);
-  const nextTransport = dayItems.find((item) => item.type === "transport");
-  const lodging = dayItems.find((item) => item.type === "lodging") ?? trip.lodgings.find((item) => item.date === selectedDay.date);
 
   const placesWithLinks = useMemo(
     () =>
@@ -75,10 +71,7 @@ function App() {
               selectedDay,
               dayItems,
               currentPlace,
-              weatherSummary,
               weatherReport,
-              nextTransport,
-              lodging,
               setSelectedDate,
               days: trip.days,
               setActiveView
@@ -152,6 +145,29 @@ const viewItems = [
   { id: "docs", shortLabel: "凭证", icon: FileText }
 ];
 
+const dayHeroCopy = {
+  "2026-04-30": {
+    title: "启程，飞向\n伊斯坦布尔",
+    copy: "今天重点是值机、转机和落地衔接；把航班、护照、酒店确认单放在最顺手的位置。"
+  },
+  "2026-05-01": {
+    title: "抵达土耳其\n转进以弗所",
+    copy: "今天是机场、国内航班和古城游览的连续动作日；转机、交通和酒店信息优先确认。"
+  },
+  "2026-05-02": {
+    title: "转入海边\n落脚厄吕代尼兹",
+    copy: "今天交通时间长，落地后再安排海边和滑翔伞预约；风、雨和酒店位置优先复核。"
+  },
+  "2026-05-03": {
+    title: "滑翔伞\n利西亚徒步",
+    copy: "今天的核心变量是风和能见度；出发前看官方天气，再决定徒步距离和夜巴节奏。"
+  },
+  "2026-05-04": {
+    title: "抵达格雷梅\n看卡帕多奇亚",
+    copy: "今天从夜巴恢复体力，确认酒店、热气球天气和格雷梅周边导航。"
+  }
+};
+
 function PageHeader({ kicker, title, count }) {
   return React.createElement("div", { className: "page-heading" },
     React.createElement("div", null,
@@ -165,43 +181,40 @@ function PageHeader({ kicker, title, count }) {
 function TodayPanel(props) {
   const {
     selectedDay,
-    dayItems,
     currentPlace,
-    weatherSummary,
     weatherReport,
-    nextTransport,
-    lodging,
     setSelectedDate,
     days,
     setActiveView
   } = props;
   const mapLinks = createMapLinks(currentPlace);
+  const hero = dayHeroCopy[selectedDay.date] ?? {
+    title: selectedDay.city,
+    copy: "把今天最关键的交通、住宿、天气和凭证入口集中在这里。"
+  };
 
-  return React.createElement("article", { className: "panel today-panel" },
-    React.createElement("div", { className: "panel-title-row" },
-      React.createElement("div", null,
-        React.createElement("span", { className: "date-pill" }, `${selectedDay.title} · 今日`),
-        React.createElement("h2", null, `${selectedDay.title} · ${selectedDay.city}`)
+  return React.createElement(React.Fragment, null,
+    React.createElement("article", { className: "panel today-panel" },
+      React.createElement("div", { className: "panel-title-row" },
+        React.createElement("div", null,
+          React.createElement("span", { className: "date-pill" }, `${selectedDay.title} · 今日`),
+          React.createElement("h2", null, hero.title)
+        ),
+        React.createElement("button", { className: "weather-chip", onClick: () => setActiveView("places") },
+          React.createElement("strong", null, weatherReport.status === "divergent" ? "复核天气" : "接入天气"),
+          React.createElement("span", null, weatherReport.status === "divergent" ? "有分歧" : "已校验")
+        )
       ),
-      React.createElement("button", { className: "weather-chip", onClick: () => setActiveView("places") },
-        React.createElement("strong", null, weatherReport.status === "divergent" ? "复核天气" : "接入天气"),
-        React.createElement("span", null, weatherReport.status === "divergent" ? "有分歧" : "已校验")
+      React.createElement("p", { className: "hero-copy" }, hero.copy),
+      React.createElement("div", { className: "day-switcher" },
+        days.map((day) =>
+          React.createElement("button", {
+            key: day.id,
+            className: day.date === selectedDay.date ? "day-chip active" : "day-chip",
+            onClick: () => setSelectedDate(day.date)
+          }, day.title)
+        )
       )
-    ),
-    React.createElement("p", { className: "hero-copy" }, "今天是机场、国内航班和古城游览的连续动作日；转机、交通和酒店信息优先确认。"),
-    React.createElement("div", { className: "day-switcher" },
-      days.map((day) =>
-        React.createElement("button", {
-          key: day.id,
-          className: day.date === selectedDay.date ? "day-chip active" : "day-chip",
-          onClick: () => setSelectedDate(day.date)
-        }, day.title)
-      )
-    ),
-    React.createElement("div", { className: "mission-strip" },
-      React.createElement(Metric, { icon: CloudSun, label: "天气", value: `${weatherSummary.highC}°/${weatherSummary.lowC}°`, hint: `${weatherSummary.windKmh} km/h` }),
-      React.createElement(Metric, { icon: Route, label: "下一段", value: nextTransport?.title ?? "自由行动", hint: nextTransport?.startTime ?? "待定" }),
-      React.createElement(Metric, { icon: ShieldCheck, label: "住宿", value: lodging?.title ?? "未绑定", hint: lodging?.address ?? "可补充" })
     ),
     React.createElement("div", { className: "quick-actions" },
       React.createElement("a", { href: mapLinks.google, target: "_blank", rel: "noreferrer", className: "action-tile" },
@@ -219,29 +232,6 @@ function TodayPanel(props) {
       React.createElement("button", { className: "action-tile", onClick: () => setActiveView("itinerary") },
         React.createElement(Route, { size: 18 }),
         React.createElement("span", null, "交通")
-      )
-    ),
-    React.createElement("div", { className: "module-jumps" },
-      React.createElement("button", { onClick: () => setActiveView("places") },
-        React.createElement(CloudSun, { size: 17 }),
-        React.createElement("span", null, "看天气")
-      ),
-      React.createElement("button", { onClick: () => setActiveView("places") },
-        React.createElement(Navigation, { size: 17 }),
-        React.createElement("span", null, "找跳转")
-      ),
-      React.createElement("button", { onClick: () => setActiveView("docs") },
-        React.createElement(Languages, { size: 17 }),
-        React.createElement("span", null, "常用语")
-      )
-    ),
-    React.createElement("div", { className: "next-preview" },
-      React.createElement("div", { className: "next-preview-head" },
-        React.createElement("strong", null, "接下来"),
-        React.createElement("button", { onClick: () => setActiveView("itinerary") }, "完整行程")
-      ),
-      React.createElement("ol", { className: "timeline compact" },
-        dayItems.slice(0, 2).map((item) => React.createElement(TimelineItem, { item, key: item.id }))
       )
     )
   );
@@ -482,25 +472,6 @@ function CollaborationPanel({ trip, syncCloud }) {
     React.createElement("button", { className: "icon-button", onClick: syncCloud },
       React.createElement(Users, { size: 18 }),
       React.createElement("span", null, "测试同步状态")
-    )
-  );
-}
-
-function Metric({ icon: Icon, label, value, hint }) {
-  return React.createElement("div", { className: "metric" },
-    React.createElement(Icon, { size: 19 }),
-    React.createElement("span", null, label),
-    React.createElement("strong", null, value),
-    React.createElement("small", null, hint)
-  );
-}
-
-function TimelineItem({ item }) {
-  return React.createElement("li", { className: `timeline-item ${item.type}` },
-    React.createElement("time", null, item.startTime ?? "--:--"),
-    React.createElement("div", null,
-      React.createElement("strong", null, item.title),
-      React.createElement("p", null, item.notes.join(" / "))
     )
   );
 }
