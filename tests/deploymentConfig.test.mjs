@@ -34,7 +34,9 @@ test("allowlists only runtime static files for Vercel uploads", async () => {
     "!index.html",
     "!manifest.webmanifest",
     "!service-worker.js",
+    "!assets/",
     "!assets/**",
+    "!src/",
     "!src/**",
     "!vercel.json"
   ]);
