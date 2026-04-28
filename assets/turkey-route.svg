@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520">
+  <defs>
+    <linearGradient id="sea" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#d9ece9"/>
+      <stop offset="1" stop-color="#f5eddc"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#173f3a" flood-opacity=".16"/>
+    </filter>
+  </defs>
+  <rect width="900" height="520" fill="url(#sea)"/>
+  <path d="M94 310c68-52 154-83 246-94 102-12 183 8 252 46 60 33 127 45 214 34" fill="none" stroke="#173f3a" stroke-opacity=".16" stroke-width="74" stroke-linecap="round"/>
+  <path d="M94 310c68-52 154-83 246-94 102-12 183 8 252 46 60 33 127 45 214 34" fill="none" stroke="#173f3a" stroke-width="10" stroke-linecap="round" stroke-dasharray="1 26"/>
+  <g filter="url(#soft)" font-family="Segoe UI, Microsoft YaHei, sans-serif">
+    <g transform="translate(116 292)">
+      <circle r="24" fill="#173f3a"/>
+      <text y="-38" text-anchor="middle" font-size="24" font-weight="800" fill="#173f3a">IST</text>
+    </g>
+    <g transform="translate(298 228)">
+      <circle r="24" fill="#1f6d86"/>
+      <text y="-38" text-anchor="middle" font-size="24" font-weight="800" fill="#173f3a">ADB</text>
+    </g>
+    <g transform="translate(442 226)">
+      <circle r="24" fill="#d65c45"/>
+      <text y="-38" text-anchor="middle" font-size="24" font-weight="800" fill="#173f3a">EPH</text>
+    </g>
+    <g transform="translate(575 262)">
+      <circle r="24" fill="#e5a323"/>
+      <text y="-38" text-anchor="middle" font-size="24" font-weight="800" fill="#173f3a">FET</text>
+    </g>
+    <g transform="translate(760 300)">
+      <circle r="24" fill="#286a5c"/>
+      <text y="-38" text-anchor="middle" font-size="24" font-weight="800" fill="#173f3a">CAP</text>
+    </g>
+  </g>
+  <text x="42" y="462" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="24" font-weight="800" fill="#173f3a">Istanbul · Izmir · Ephesus · Fethiye · Cappadocia</text>
+</svg>

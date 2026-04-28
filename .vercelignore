@@ -1,0 +1,8 @@
+# Deploy only the runtime static PWA surface for root-directory previews.
+/*
+!index.html
+!manifest.webmanifest
+!service-worker.js
+!assets/**
+!src/**
+!vercel.json

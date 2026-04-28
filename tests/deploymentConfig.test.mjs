@@ -1,0 +1,114 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const projectRoot = fileURLToPath(new URL("../", import.meta.url));
+
+test("configures Vercel for static root preview deployments", async () => {
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+
+  assert.equal(config.$schema, "https://openapi.vercel.sh/vercel.json");
+  assert.equal(config.framework, null);
+  assert.equal(config.buildCommand, "");
+  assert.equal(config.installCommand, "");
+  assert.equal(config.outputDirectory, ".");
+
+  assertHasNoStoreHeader(config, "/service-worker.js");
+  assertHasNoStoreHeader(config, "/manifest.webmanifest");
+});
+
+test("allowlists only runtime static files for Vercel uploads", async () => {
+  const ignoreRules = (await readFile(new URL("../.vercelignore", import.meta.url), "utf8"))
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+
+  assert.equal(ignoreRules[0], "/*");
+  assert.deepEqual(ignoreRules.slice(1), [
+    "!index.html",
+    "!manifest.webmanifest",
+    "!service-worker.js",
+    "!assets/**",
+    "!src/**",
+    "!vercel.json"
+  ]);
+  assert.equal(ignoreRules.includes("!tests/**"), false);
+  assert.equal(ignoreRules.includes("!supabase/**"), false);
+  assert.equal(ignoreRules.includes("!scripts/**"), false);
+  assert.equal(ignoreRules.includes("!artifacts/**"), false);
+});
+
+test("wires a deployment smoke-test script into package scripts", async () => {
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+
+  assert.equal(packageJson.scripts["test:deploy"], "node scripts/verify-deployment.mjs");
+});
+
+test("deployment verifier accepts a local static preview serving cached PWA assets", async () => {
+  const server = createStaticServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [
+      "scripts/verify-deployment.mjs",
+      `http://127.0.0.1:${port}`
+    ], {
+      cwd: new URL("../", import.meta.url)
+    });
+
+    assert.match(stdout, /Deployment smoke test passed/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+function assertHasNoStoreHeader(config, source) {
+  const route = config.headers.find((entry) => entry.source === source);
+  assert.ok(route, `${source} header rule is missing`);
+  assert.deepEqual(route.headers, [
+    {
+      key: "Cache-Control",
+      value: "public, max-age=0, must-revalidate"
+    }
+  ]);
+}
+
+function createStaticServer() {
+  const mimeTypes = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
+    ".svg": "image/svg+xml; charset=utf-8"
+  };
+
+  return createServer(async (request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    const requestedPath = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
+    const filePath = normalize(join(projectRoot, requestedPath));
+
+    if (!filePath.startsWith(normalize(projectRoot))) {
+      response.writeHead(403);
+      response.end("Forbidden");
+      return;
+    }
+
+    try {
+      const body = await readFile(filePath);
+      response.writeHead(200, {
+        "Content-Type": mimeTypes[extname(filePath)] ?? "application/octet-stream"
+      });
+      response.end(body);
+    } catch {
+      response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      response.end("Not found");
+    }
+  });
+}
