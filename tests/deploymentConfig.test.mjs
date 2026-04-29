@@ -55,12 +55,17 @@ test("wires a deployment smoke-test script into package scripts", async () => {
 test("uses the repository name in browser and PWA display metadata", async () => {
   const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
   const manifest = JSON.parse(await readFile(new URL("../manifest.webmanifest", import.meta.url), "utf8"));
+  const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+  const oldChineseBrand = "\u5c0f\u571f";
+  const oldPaceLabel = "\u7279\u79cd\u5175";
 
   assert.match(index, /<title>Merhaba-World<\/title>/);
   assert.equal(manifest.name, "Merhaba-World");
   assert.equal(manifest.short_name, "Merhaba");
-  assert.equal(index.includes("小土行动台"), false);
-  assert.equal(manifest.name.includes("小土"), false);
+  assert.equal(index.includes(oldChineseBrand), false);
+  assert.equal(manifest.name.includes(oldChineseBrand), false);
+  assert.equal(readme.includes(oldChineseBrand), false);
+  assert.equal(readme.includes(oldPaceLabel), false);
 });
 
 test("deployment verifier accepts a local static preview serving cached PWA assets", async () => {
@@ -94,7 +99,7 @@ test("service worker precaches recognized wiki credential screenshots", async ()
 test("service worker bumps cache version and refreshes app shell resources from the network", async () => {
   const serviceWorker = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
 
-  assert.match(serviceWorker, /CACHE_NAME = "short-trip-command-v2"/);
+  assert.match(serviceWorker, /CACHE_NAME = "merhaba-world-v1"/);
   assert.match(serviceWorker, /NETWORK_FIRST_PATHS/);
   assert.match(serviceWorker, /"\/src\/App\.js"/);
   assert.match(serviceWorker, /"\/src\/styles\.css"/);

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseMarkdownItinerary } from "../src/lib/markdownImporter.js";
 
-const sample = `# 五一小土特种兵行动方针
+const sample = `# Merhaba-World 行动方针
 
 | 日期 | 时间        | 行程                                                         |
 | ---- | ----------- | ------------------------------------------------------------ |

@@ -1,4 +1,4 @@
-export const seedMarkdown = `# 五一小土特种兵行动方针
+export const seedMarkdown = `# Merhaba-World 行动方针
 
 | 日期 | 时间        | 行程                                                         |
 | ---- | ----------- | ------------------------------------------------------------ |

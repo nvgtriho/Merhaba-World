@@ -1,4 +1,4 @@
-const CACHE_NAME = "short-trip-command-v2";
+const CACHE_NAME = "merhaba-world-v1";
 const LOCAL_ASSETS = [
   "/",
   "/index.html",

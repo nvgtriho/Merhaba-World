@@ -3,9 +3,14 @@ import assert from "node:assert/strict";
 import { seedMarkdown, seedTrip } from "../src/data/tripSeed.js";
 
 test("uses the repository name as the app title", () => {
+  const oldChineseBrand = "\u5c0f\u571f";
+  const oldPaceLabel = "\u7279\u79cd\u5175";
+
   assert.equal(seedTrip.name, "Merhaba-World");
   assert.equal(seedTrip.name.includes("short-trip-command-pwa"), false);
-  assert.equal(seedTrip.name.includes("五一小土特种兵行动台"), false);
+  assert.equal(seedTrip.name.includes(oldChineseBrand), false);
+  assert.equal(seedMarkdown.includes(oldChineseBrand), false);
+  assert.equal(seedMarkdown.includes(oldPaceLabel), false);
 });
 
 test("imports the full markdown plan through May 6 into seed data", () => {
