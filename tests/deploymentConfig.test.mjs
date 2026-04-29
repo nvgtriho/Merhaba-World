@@ -80,6 +80,17 @@ test("service worker precaches recognized wiki credential screenshots", async ()
   assert.equal(serviceWorker.includes("/assets/wiki/flight-tk2001.jpg"), true);
 });
 
+test("service worker bumps cache version and refreshes app shell resources from the network", async () => {
+  const serviceWorker = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
+
+  assert.match(serviceWorker, /CACHE_NAME = "short-trip-command-v2"/);
+  assert.match(serviceWorker, /NETWORK_FIRST_PATHS/);
+  assert.match(serviceWorker, /"\/src\/App\.js"/);
+  assert.match(serviceWorker, /"\/src\/styles\.css"/);
+  assert.match(serviceWorker, /event\.request\.mode === "navigate"/);
+  assert.match(serviceWorker, /fetch\(event\.request\)/);
+});
+
 function assertHasNoStoreHeader(config, source) {
   const route = config.headers.find((entry) => entry.source === source);
   assert.ok(route, `${source} header rule is missing`);
