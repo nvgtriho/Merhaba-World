@@ -106,12 +106,14 @@ test("service worker precaches runtime modules imported by the app shell", async
 test("service worker bumps cache version and refreshes app shell resources from the network", async () => {
   const serviceWorker = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
 
-  assert.match(serviceWorker, /CACHE_NAME = "merhaba-world-v3"/);
+  assert.match(serviceWorker, /CACHE_NAME = "merhaba-world-v4"/);
   assert.match(serviceWorker, /NETWORK_FIRST_PATHS/);
   assert.match(serviceWorker, /"\/src\/App\.js"/);
   assert.match(serviceWorker, /"\/src\/styles\.css"/);
   assert.match(serviceWorker, /"\/src\/data\/tripSeed\.js"/);
+  assert.match(serviceWorker, /"\/src\/lib\/assistantLinks\.js"/);
   assert.match(serviceWorker, /"\/src\/lib\/maps\.js"/);
+  assert.match(serviceWorker, /"\/src\/lib\/supabaseAdapter\.js"/);
   assert.match(serviceWorker, /event\.request\.mode === "navigate"/);
   assert.match(serviceWorker, /fetch\(event\.request\)/);
 });

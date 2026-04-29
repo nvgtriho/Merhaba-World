@@ -25,4 +25,13 @@ npm run dev:vite
 
 ## Supabase
 
-`supabase/schema.sql` 包含第一版核心表和 RLS 草案。未配置 Supabase URL/anon key 时，前端保持本地演示模式；配置后可替换为真实同步。
+`supabase/schema.sql` 包含第一版核心表、`trip_snapshots` 快照表和 RLS 草案。未配置 Supabase URL/anon key 时，前端保持本地演示模式，只会写入当前手机的 `localStorage`，两台手机不会互通。
+
+要启用两个人互连同步：
+
+1. 在 Supabase SQL Editor 执行 `supabase/schema.sql`。
+2. 打开网页的“凭证与常用”页，在“旅伴协作”里填写同一个 Supabase URL 和 anon key。
+3. 两台手机都保存配置并刷新。
+4. 一台手机点“推送当前”，另一台手机点“拉取云端”。
+
+这版是公开快照同步，适合公开旅行页的轻量协作；不要放护照号、支付信息等敏感内容。

@@ -229,6 +229,9 @@ test("adds a mystic detail view reachable from the cover summary", async () => {
   assert.equal(source.includes("getMysticLinkMeta"), true);
   assert.equal(source.includes("getMoonPhaseInfo"), true);
   assert.equal(source.includes("moon-phase-summary"), true);
+  assert.equal(source.includes("mystic-oracle-grid"), true);
+  assert.equal(source.includes("mystic-symbol"), true);
+  assert.equal(source.includes("今日签"), true);
   assert.equal(source.includes("Astro-Seek"), true);
   assert.equal(source.includes("xzw.com"), false);
   assert.equal(source.includes("只保留一句判断"), false);
@@ -236,6 +239,8 @@ test("adds a mystic detail view reachable from the cover summary", async () => {
   assert.equal(styles.includes(".mystic-link-deck"), true);
   assert.equal(styles.includes(".mystic-source-card"), true);
   assert.equal(styles.includes(".moon-phase-summary"), true);
+  assert.equal(styles.includes(".mystic-oracle-grid"), true);
+  assert.equal(styles.includes(".mystic-symbol"), true);
 });
 
 test("adds a lightweight cloud snapshot panel for two-person editing", async () => {
@@ -248,10 +253,14 @@ test("adds a lightweight cloud snapshot panel for two-person editing", async () 
   assert.equal(source.includes("pullLatestCloud"), true);
   assert.equal(source.includes("hasLoadedCloud"), true);
   assert.equal(source.includes("sync-editor-input"), true);
+  assert.equal(source.includes("本机演示不会跨手机同步"), true);
+  assert.equal(source.includes("Supabase URL"), true);
+  assert.equal(source.includes("先在两台手机填同一组 Supabase 配置"), true);
   assert.equal(source.includes("测试同步状态"), false);
   assert.equal(adapter.includes("trip_snapshots"), true);
   assert.equal(adapter.includes("payload"), true);
   assert.equal(adapter.includes("version"), true);
+  assert.equal(adapter.includes("short-trip-supabase-url"), true);
 });
 
 test("renders an hourly weather time-series chart instead of only static source cards", async () => {
@@ -305,9 +314,12 @@ test("adds ChatGPT and Gemini language helpers", async () => {
   assert.equal(source.includes("ai-language-actions"), true);
   assert.equal(assistantLinks.includes("ChatGPT"), true);
   assert.equal(assistantLinks.includes("Gemini"), true);
-  assert.equal(assistantLinks.includes('kind: "web"'), false);
-  assert.equal(assistantLinks.includes("chatgpt.com"), false);
+  assert.equal(assistantLinks.includes("chatgpt.com"), true);
+  assert.equal(assistantLinks.includes("gemini.google.com/app"), true);
+  assert.equal(assistantLinks.includes("chatgpt://"), false);
+  assert.equal(assistantLinks.includes("googlegemini://"), false);
   assert.equal(assistantLinks.includes("browser_fallback_url"), false);
+  assert.equal(source.includes("openAssistantLink"), true);
   assert.equal(source.includes("createAiTranslatorPrompt"), true);
   assert.equal(styles.includes(".ai-language-links"), true);
   assert.equal(styles.includes(".ai-language-actions"), true);

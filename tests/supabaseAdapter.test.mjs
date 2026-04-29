@@ -59,6 +59,16 @@ test("local demo mode stores full trip snapshots and pulls them back", async () 
   assert.deepEqual(pullResult.trip, baseTrip);
 });
 
+test("supabase mode can be enabled from saved public config on both phones", () => {
+  const storage = createMemoryStorage();
+  storage.setItem("short-trip-supabase-url", "https://example.supabase.co");
+  storage.setItem("short-trip-supabase-anon-key", "anon-key");
+
+  const adapter = createSupabaseAdapter({ storage });
+
+  assert.equal(adapter.mode, "supabase");
+});
+
 test("local demo mode refuses stale pushes instead of overwriting newer cloud data", async () => {
   const adapter = createSupabaseAdapter({
     storage: createMemoryStorage(),

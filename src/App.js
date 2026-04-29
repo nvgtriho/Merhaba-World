@@ -12,6 +12,8 @@ import {
   Link2,
   MapPin,
   Navigation,
+  Moon,
+  Palette,
   PencilLine,
   Phone,
   Plus,
@@ -24,7 +26,7 @@ import {
   X,
 } from "https://esm.sh/lucide-react@0.468.0?dev&deps=react@18.3.1";
 import { createDirectionsLink, createGoogleMapsSearchUrl, createMapLinks, normalizeGoogleMapsPlace } from "./lib/maps.js";
-import { createAssistantLinks, createClockReminderLink } from "./lib/assistantLinks.js";
+import { createAssistantLinks, createClockReminderLink, createClockReminderNote } from "./lib/assistantLinks.js";
 import { createIndexedDbStore } from "./lib/offlineStore.js";
 import {
   compareWeatherSources,
@@ -34,7 +36,7 @@ import {
   turkeyWeatherSources
 } from "./lib/weather.js";
 import { createLocationFallbackSnapshots, getDayWeatherLocations, weatherCacheKey } from "./lib/weatherLocations.js";
-import { createSupabaseAdapter } from "./lib/supabaseAdapter.js";
+import { createSupabaseAdapter, SUPABASE_ANON_KEY_STORAGE_KEY, SUPABASE_URL_STORAGE_KEY } from "./lib/supabaseAdapter.js";
 import { seedTrip } from "./data/tripSeed.js";
 import { turkeyPhrases } from "./data/turkishTemplate.js";
 
@@ -262,7 +264,8 @@ function App() {
               weatherStatus,
               weatherLocationReports,
               trip,
-              setTrip: updateTrip
+              setTrip: updateTrip,
+              setSavedToast
             })
           ),
           activeView === "food" && React.createElement(React.Fragment, null,
@@ -407,6 +410,19 @@ function TodayPanel(props) {
     copy: "把今天最关键的交通、住宿、天气和凭证入口集中在这里。"
   };
 
+  async function handleQuickAction(action) {
+    if (action.copyText) {
+      try {
+        await navigator.clipboard?.writeText(action.copyText);
+      } catch {
+        // Clipboard access can be denied in some in-app browsers; keep the action non-fatal.
+      }
+      props.setSavedToast?.("已复制提醒内容，打开系统闹钟后粘贴即可");
+      return;
+    }
+    if (action.view) setActiveView(action.view);
+  }
+
   return React.createElement(React.Fragment, null,
     React.createElement("article", { className: "panel today-panel", style: backgroundImageStyle(selectedDay.heroImageUrl, "--hero-image") },
       React.createElement("div", { className: "panel-title-row" },
@@ -449,7 +465,7 @@ function TodayPanel(props) {
           className: "action-tile",
           "aria-label": action.label,
           title: action.label,
-          onClick: () => setActiveView(action.view)
+          onClick: () => handleQuickAction(action)
         }, content);
       })
     )
@@ -1083,6 +1099,7 @@ function MysticPanel({ selectedDay, trip, setTrip }) {
   const savedLinks = (trip.mysticLinks ?? []).filter((link) => !link.date || link.date === selectedDay.date);
   const links = [...baseLinks, ...savedLinks];
   const moonInfo = getMoonPhaseInfo(selectedDay.date);
+  const mysticCopy = createMysticCopy(selectedDay, moonInfo);
 
   function addMysticLink() {
     const normalized = normalizeExternalLink(draft.url || draft.title);
@@ -1104,6 +1121,32 @@ function MysticPanel({ selectedDay, trip, setTrip }) {
       React.createElement("span", null, selectedDay.mystic?.luckyColor ?? "今日色彩"),
       React.createElement("strong", null, selectedDay.mystic?.summary ?? "今天宜稳住节奏。"),
       React.createElement("p", null, `关注：${selectedDay.mystic?.focus ?? selectedDay.city}`)
+    ),
+    React.createElement("div", { className: "mystic-oracle-grid" },
+      React.createElement("div", { className: "mystic-oracle-card feature" },
+        React.createElement("div", { className: "mystic-symbol star-map", "aria-hidden": "true" },
+          React.createElement(Sparkles, { size: 24 })
+        ),
+        React.createElement("span", null, "今日签"),
+        React.createElement("strong", null, mysticCopy.title),
+        React.createElement("p", null, mysticCopy.body)
+      ),
+      React.createElement("div", { className: "mystic-oracle-card" },
+        React.createElement("div", { className: "mystic-symbol moon-arc", style: { "--moon-fill": `${moonInfo.illumination}%` }, "aria-hidden": "true" },
+          React.createElement(Moon, { size: 21 })
+        ),
+        React.createElement("span", null, "月相"),
+        React.createElement("strong", null, moonInfo.label),
+        React.createElement("p", null, `照明约 ${moonInfo.illumination}%：${moonInfo.advice}`)
+      ),
+      React.createElement("div", { className: "mystic-oracle-card" },
+        React.createElement("div", { className: "mystic-symbol color-orb", "aria-hidden": "true" },
+          React.createElement(Palette, { size: 21 })
+        ),
+        React.createElement("span", null, "幸运色"),
+        React.createElement("strong", null, selectedDay.mystic?.luckyColor ?? "今日色彩"),
+        React.createElement("p", null, "把它当作当天穿搭、壁纸或背包识别色。")
+      )
     ),
     React.createElement("div", { className: "moon-phase-summary" },
       React.createElement("span", null, "Moon"),
@@ -1132,6 +1175,16 @@ function MysticPanel({ selectedDay, trip, setTrip }) {
       )
     )
   );
+}
+
+function createMysticCopy(selectedDay, moonInfo) {
+  const focus = selectedDay.mystic?.focus ?? selectedDay.city;
+  const summary = selectedDay.mystic?.summary ?? "今天宜稳住节奏。";
+  const city = selectedDay.city?.split(" / ")[0] ?? selectedDay.city;
+  return {
+    title: `${city} 行动签`,
+    body: `${summary} 把“${focus}”当作今天的主线：先确认不可逆的交通和凭证，再给临场兴致留一点空间。${moonInfo.advice}。`
+  };
 }
 
 function getMysticLinkMeta(link) {
@@ -1179,8 +1232,22 @@ function PhraseLauncher({ phrases, variant = "card" }) {
   const assistantLinks = createAssistantLinks(aiPrompt, navigator.userAgent);
 
   async function copyAssistantPrompt() {
-    await navigator.clipboard?.writeText(aiPrompt);
+    try {
+      await navigator.clipboard?.writeText(aiPrompt);
+    } catch {
+      // The prompt remains visible above the buttons if clipboard permission is blocked.
+    }
     setCopiedAssistantPrompt(true);
+  }
+
+  async function openAssistantLink(link) {
+    try {
+      await navigator.clipboard?.writeText(link.prompt ?? aiPrompt);
+    } catch {
+      // Opening the assistant is more important than clipboard success.
+    }
+    setCopiedAssistantPrompt(true);
+    window.location.href = link.href;
   }
 
   return React.createElement(React.Fragment, null,
@@ -1210,11 +1277,10 @@ function PhraseLauncher({ phrases, variant = "card" }) {
                 React.createElement(Copy, { size: 15 }),
                 React.createElement("span", null, copiedAssistantPrompt ? "已复制" : link.label)
               )
-              : React.createElement("a", {
+              : React.createElement("button", {
                 key: link.id,
-                href: link.href,
-                target: link.kind === "web" ? "_blank" : undefined,
-                rel: link.kind === "web" ? "noreferrer" : undefined
+                type: "button",
+                onClick: () => openAssistantLink(link)
               },
                 React.createElement(Sparkles, { size: 15 }),
                 React.createElement("span", null, link.label)
@@ -1362,6 +1428,8 @@ function CredentialCard({ asset }) {
 }
 
 function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCloud, pullCloud }) {
+  const [cloudConfig, setCloudConfig] = useState(() => readSavedCloudConfig());
+  const isLocalDemo = supabaseAdapter.mode !== "supabase";
   const statusText = syncState.dirty
     ? "本地有改动"
     : syncState.version
@@ -1370,6 +1438,13 @@ function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCl
   const updatedText = syncState.updatedBy
     ? `${syncState.updatedBy} · ${formatSyncTime(syncState.updatedAt)}`
     : syncState.message;
+
+  function saveCloudConfig() {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(SUPABASE_URL_STORAGE_KEY, cloudConfig.url.trim());
+    localStorage.setItem(SUPABASE_ANON_KEY_STORAGE_KEY, cloudConfig.anonKey.trim());
+    window.location.reload();
+  }
 
   return React.createElement("article", { className: "panel collaboration-panel" },
     React.createElement(SectionHeading, { icon: Users, title: "旅伴协作", subtitle: "两个人共用一份云端快照" }),
@@ -1398,8 +1473,44 @@ function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCl
         React.createElement(Users, { size: 18 }),
         React.createElement("span", null, "推送当前")
       )
+    ),
+    isLocalDemo && React.createElement("div", { className: "sync-help-card" },
+      React.createElement("strong", null, "本机演示不会跨手机同步"),
+      React.createElement("p", null, "先在两台手机填同一组 Supabase 配置，刷新后由一台手机点“推送当前”，另一台手机点“拉取云端”。"),
+      React.createElement("label", null,
+        React.createElement("span", null, "Supabase URL"),
+        React.createElement("input", {
+          value: cloudConfig.url,
+          onChange: (event) => setCloudConfig({ ...cloudConfig, url: event.target.value }),
+          placeholder: "https://xxxx.supabase.co",
+          autoCapitalize: "none",
+          spellCheck: false
+        })
+      ),
+      React.createElement("label", null,
+        React.createElement("span", null, "anon key"),
+        React.createElement("input", {
+          value: cloudConfig.anonKey,
+          onChange: (event) => setCloudConfig({ ...cloudConfig, anonKey: event.target.value }),
+          placeholder: "public anon key",
+          autoCapitalize: "none",
+          spellCheck: false
+        })
+      ),
+      React.createElement("button", { className: "primary-button", onClick: saveCloudConfig },
+        React.createElement(Save, { size: 18 }),
+        React.createElement("span", null, "保存配置并刷新")
+      )
     )
   );
+}
+
+function readSavedCloudConfig() {
+  if (typeof localStorage === "undefined") return { url: "", anonKey: "" };
+  return {
+    url: localStorage.getItem(SUPABASE_URL_STORAGE_KEY) ?? "",
+    anonKey: localStorage.getItem(SUPABASE_ANON_KEY_STORAGE_KEY) ?? ""
+  };
 }
 
 function formatSyncTime(value) {
@@ -1545,6 +1656,8 @@ function getDayQuickActions({ selectedDay, dayItems, trip, currentPlace }) {
   const firstPlace = resolveItemPlace(firstItem ?? {}, trip.places) ?? currentPlace;
   const lodging = trip.lodgings.find((entry) => entry.date === selectedDay.date);
   const hasAssets = dayItems.some((item) => (item.assetIds ?? []).length > 0) || (trip.assets ?? []).some((asset) => asset.date === selectedDay.date);
+  const userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  const alarmHref = createClockReminderLink(selectedDay, dayItems, userAgent);
   const actions = [
     {
       id: "day-map",
@@ -1573,10 +1686,10 @@ function getDayQuickActions({ selectedDay, dayItems, trip, currentPlace }) {
 
   actions.push({
     id: "day-reminder",
-    label: "打开闹钟",
+    label: alarmHref ? "打开闹钟" : "复制提醒",
     icon: AlarmClock,
-    href: createClockReminderLink(selectedDay, dayItems),
-    external: true
+    href: alarmHref,
+    copyText: alarmHref ? "" : createClockReminderNote(selectedDay, dayItems)
   });
 
   return actions.slice(0, 4);

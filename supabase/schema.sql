@@ -57,12 +57,21 @@ create table if not exists public.weather_snapshots (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.trip_snapshots (
+  id text primary key,
+  payload jsonb not null,
+  version integer not null default 1,
+  updated_at timestamptz not null default now(),
+  updated_by text not null default 'traveler'
+);
+
 alter table public.trips enable row level security;
 alter table public.trip_members enable row level security;
 alter table public.itinerary_items enable row level security;
 alter table public.places enable row level security;
 alter table public.links enable row level security;
 alter table public.weather_snapshots enable row level security;
+alter table public.trip_snapshots enable row level security;
 
 create policy "members can read trips"
   on public.trips for select
@@ -94,3 +103,16 @@ create policy "members can edit links"
 create policy "members can read weather"
   on public.weather_snapshots for select
   using (exists (select 1 from public.trip_members m where m.trip_id = trip_id and m.user_id = auth.uid()));
+
+create policy "public can read trip snapshots"
+  on public.trip_snapshots for select
+  using (true);
+
+create policy "public can insert trip snapshots"
+  on public.trip_snapshots for insert
+  with check (true);
+
+create policy "public can update trip snapshots"
+  on public.trip_snapshots for update
+  using (true)
+  with check (true);

@@ -1,5 +1,7 @@
 const SNAPSHOT_TABLE = "trip_snapshots";
 const LOCAL_PREFIX = "short-trip-cloud-snapshot:";
+export const SUPABASE_URL_STORAGE_KEY = "short-trip-supabase-url";
+export const SUPABASE_ANON_KEY_STORAGE_KEY = "short-trip-supabase-anon-key";
 
 export function createTripSnapshot(trip, options = {}) {
   return {
@@ -13,9 +15,11 @@ export function createTripSnapshot(trip, options = {}) {
 
 export function createSupabaseAdapter(config = {}) {
   const runtimeWindow = typeof window === "undefined" ? {} : window;
-  const url = config.url ?? runtimeWindow.__SUPABASE_URL__ ?? "";
-  const anonKey = config.anonKey ?? runtimeWindow.__SUPABASE_ANON_KEY__ ?? "";
   const storage = config.storage ?? runtimeWindow.localStorage;
+  const storedUrl = readStorageValue(storage, SUPABASE_URL_STORAGE_KEY);
+  const storedAnonKey = readStorageValue(storage, SUPABASE_ANON_KEY_STORAGE_KEY);
+  const url = config.url ?? runtimeWindow.__SUPABASE_URL__ ?? storedUrl ?? "";
+  const anonKey = config.anonKey ?? runtimeWindow.__SUPABASE_ANON_KEY__ ?? storedAnonKey ?? "";
   const now = config.now ?? (() => new Date().toISOString());
   const mode = url && anonKey ? "supabase" : "local-demo";
 
@@ -85,6 +89,14 @@ export function createSupabaseAdapter(config = {}) {
     pullTrip,
     syncTrip: pushTrip
   };
+}
+
+function readStorageValue(storage, key) {
+  try {
+    return storage?.getItem?.(key) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function isStalePush(remote, baseVersion) {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "merhaba-world-v3";
+const CACHE_NAME = "merhaba-world-v4";
 const LOCAL_ASSETS = [
   "/",
   "/index.html",
@@ -34,7 +34,9 @@ const NETWORK_FIRST_PATHS = new Set([
   "/src/App.js",
   "/src/styles.css",
   "/src/data/tripSeed.js",
-  "/src/lib/maps.js"
+  "/src/lib/assistantLinks.js",
+  "/src/lib/maps.js",
+  "/src/lib/supabaseAdapter.js"
 ]);
 
 self.addEventListener("install", (event) => {
