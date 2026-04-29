@@ -211,9 +211,18 @@ function App() {
       });
       setHasLoadedCloud(true);
     } else {
-      setSyncState((current) => ({ ...current, status: result.missing ? current.status : "error", message: result.missing && options.silent ? current.message : result.message }));
+      setSyncState((current) => {
+        const missingMessage = current.version
+          ? `未发现新版本，仍显示第 ${current.version} 版`
+          : "云端暂无可拉取版本，可先推送当前";
+        return {
+          ...current,
+          status: result.missing ? current.status : "error",
+          message: result.missing ? (options.silent ? current.message : missingMessage) : result.message
+        };
+      });
     }
-    if (!options.silent) setSavedToast(result.message);
+    if (!options.silent) setSavedToast(result.missing ? "云端暂无新版本，当前页面未被覆盖" : result.message);
     return result;
   }
 
@@ -1430,6 +1439,7 @@ function CredentialCard({ asset }) {
 function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCloud, pullCloud }) {
   const [cloudConfig, setCloudConfig] = useState(() => readSavedCloudConfig());
   const isLocalDemo = supabaseAdapter.mode !== "supabase";
+  const diagnosticItems = formatSyncDiagnosticItems(trip, syncState, supabaseAdapter.mode);
   const statusText = syncState.dirty
     ? "本地有改动"
     : syncState.version
@@ -1455,6 +1465,12 @@ function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCl
       React.createElement("span", null, supabaseAdapter.mode === "supabase" ? "Supabase" : "本地演示"),
       React.createElement("strong", null, statusText),
       React.createElement("small", null, updatedText)
+    ),
+    React.createElement("div", { className: "sync-diagnostics", "aria-label": "同步诊断" },
+      diagnosticItems.map((item) => React.createElement("span", { key: item.label },
+        React.createElement("b", null, item.label),
+        React.createElement("em", null, item.value)
+      ))
     ),
     React.createElement("label", { className: "sync-editor-input" },
       React.createElement("span", null, "我的昵称"),
@@ -1503,6 +1519,15 @@ function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCl
       )
     )
   );
+}
+
+function formatSyncDiagnosticItems(trip, syncState, mode) {
+  return [
+    { label: "模式", value: mode === "supabase" ? "Supabase" : "本地演示" },
+    { label: "行程 ID", value: trip.id },
+    { label: "云端", value: syncState.version ? `第 ${syncState.version} 版` : "尚未确认" },
+    { label: "最后", value: syncState.updatedBy || "未拉取" }
+  ];
 }
 
 function readSavedCloudConfig() {

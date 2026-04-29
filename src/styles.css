@@ -2212,6 +2212,42 @@ textarea {
   color: var(--muted);
 }
 
+.sync-diagnostics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.sync-diagnostics span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid rgba(37, 109, 133, 0.12);
+  border-radius: var(--radius);
+  background: #f8fbfc;
+}
+
+.sync-diagnostics b,
+.sync-diagnostics em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+}
+
+.sync-diagnostics b {
+  color: var(--muted);
+  font-size: 0.66rem;
+}
+
+.sync-diagnostics em {
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
 .sync-status-card.conflict,
 .sync-status-card.error {
   border-color: rgba(239, 143, 122, 0.42);

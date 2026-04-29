@@ -42,8 +42,8 @@ export function createSupabaseAdapter(config = {}) {
       .eq("id", tripId)
       .maybeSingle();
 
-    if (error) return { ok: false, mode, message: `云端读取失败：${error.message}` };
-    if (!data) return { ok: false, mode, missing: true, message: "云端还没有这份行程" };
+    if (error) return { ok: false, mode, tripId, message: `云端读取失败：${error.message}` };
+    if (!data) return { ok: false, mode, missing: true, tripId, message: "云端暂无可拉取版本" };
     return normalizeSnapshotResult(data, mode, "已拉取云端版本");
   }
 
@@ -108,11 +108,11 @@ function isStalePush(remote, baseVersion) {
 
 function pullLocalSnapshot(tripId, storage, mode) {
   const raw = storage?.getItem?.(`${LOCAL_PREFIX}${tripId}`);
-  if (!raw) return { ok: false, mode, missing: true, message: "本地演示云端还没有这份行程" };
+  if (!raw) return { ok: false, mode, missing: true, tripId, message: "本地演示暂无可拉取版本" };
   try {
     return normalizeSnapshotResult(JSON.parse(raw), mode, "已拉取本地演示云端版本");
   } catch {
-    return { ok: false, mode, message: "本地演示云端数据无法解析" };
+    return { ok: false, mode, tripId, message: "本地演示云端数据无法解析" };
   }
 }
 
@@ -125,6 +125,7 @@ function normalizeSnapshotResult(row, mode, message) {
     ok: true,
     mode,
     message,
+    tripId: row.id,
     trip: row.payload,
     version: row.version ?? 1,
     updatedAt: row.updated_at,

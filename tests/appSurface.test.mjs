@@ -253,6 +253,10 @@ test("adds a lightweight cloud snapshot panel for two-person editing", async () 
   assert.equal(source.includes("pullLatestCloud"), true);
   assert.equal(source.includes("hasLoadedCloud"), true);
   assert.equal(source.includes("sync-editor-input"), true);
+  assert.equal(source.includes("sync-diagnostics"), true);
+  assert.equal(source.includes("formatSyncDiagnosticItems"), true);
+  assert.equal(source.includes("行程 ID"), true);
+  assert.equal(source.includes("云端"), true);
   assert.equal(source.includes("本机演示不会跨手机同步"), true);
   assert.equal(source.includes("Supabase URL"), true);
   assert.equal(source.includes("先在两台手机填同一组 Supabase 配置"), true);

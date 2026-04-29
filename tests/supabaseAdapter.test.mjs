@@ -131,6 +131,40 @@ test("supabase mode can be enabled from saved public config on both phones", () 
   assert.equal(adapter.mode, "supabase");
 });
 
+test("missing cloud snapshots use neutral retry copy instead of no-trip copy", async () => {
+  const fakeClient = {
+    from() {
+      return {
+        select() {
+          return {
+            eq(_field, tripId) {
+              return {
+                async maybeSingle() {
+                  assert.equal(tripId, "turkey-2026");
+                  return { data: null, error: null };
+                }
+              };
+            }
+          };
+        }
+      };
+    }
+  };
+  const adapter = createSupabaseAdapter({
+    url: "https://example.supabase.co",
+    anonKey: "anon",
+    clientFactory: async () => fakeClient
+  });
+
+  const result = await adapter.pullTrip("turkey-2026");
+
+  assert.equal(result.ok, false);
+  assert.equal(result.missing, true);
+  assert.equal(result.tripId, "turkey-2026");
+  assert.equal(result.message, "云端暂无可拉取版本");
+  assert.equal(result.message.includes("还没有这份行程"), false);
+});
+
 test("local demo mode refuses stale pushes instead of overwriting newer cloud data", async () => {
   const adapter = createSupabaseAdapter({
     url: "",
