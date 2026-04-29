@@ -205,6 +205,24 @@ test("adds food recommendations with Google Maps restaurant import and jump link
   assert.equal(source.includes('activeView === "food"'), true);
 });
 
+test("adds static map thumbnails and approximate cuisine notes without route thumbnails", async () => {
+  const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  assert.equal(source.includes("MapThumbnail"), true);
+  assert.equal(source.includes("createStaticMapUrl"), true);
+  assert.equal(source.includes("inferCuisineInfo"), true);
+  assert.equal(source.includes("map-thumbnail-card"), true);
+  assert.equal(source.includes("offline-map-fallback"), true);
+  assert.equal(source.includes("restaurant-cuisine-panel"), true);
+  assert.equal(source.includes("cuisine-chip-list"), true);
+  assert.equal(source.includes("createRouteStaticMapUrl"), false);
+  assert.equal(styles.includes(".map-thumbnail-card"), true);
+  assert.equal(styles.includes(".offline-map-fallback"), true);
+  assert.equal(styles.includes(".restaurant-cuisine-panel"), true);
+  assert.equal(styles.includes(".cuisine-chip-list"), true);
+});
+
 test("keeps food recommendations day scoped and edit controls unobtrusive", async () => {
   const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
@@ -297,6 +315,13 @@ test("supports no-key Google Maps imports for restaurants and places", async () 
   assert.equal(source.includes("importGooglePlace"), true);
   assert.equal(styles.includes(".restaurant-card"), true);
   assert.equal(styles.includes(".place-google-import"), true);
+});
+
+test("keeps restaurant map jump icons visible on filled buttons", async () => {
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  assert.equal(styles.includes(".restaurant-card header a svg"), true);
+  assert.equal(styles.includes("color: #ffffff"), true);
 });
 
 test("lets action edits update timing, places, addresses, and credential bindings", async () => {

@@ -106,7 +106,7 @@ test("service worker precaches runtime modules imported by the app shell", async
 test("service worker bumps cache version and refreshes app shell resources from the network", async () => {
   const serviceWorker = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
 
-  assert.match(serviceWorker, /CACHE_NAME = "merhaba-world-v4"/);
+  assert.match(serviceWorker, /CACHE_NAME = "merhaba-world-v5"/);
   assert.match(serviceWorker, /NETWORK_FIRST_PATHS/);
   assert.match(serviceWorker, /"\/src\/App\.js"/);
   assert.match(serviceWorker, /"\/src\/styles\.css"/);
@@ -116,6 +116,15 @@ test("service worker bumps cache version and refreshes app shell resources from 
   assert.match(serviceWorker, /"\/src\/lib\/supabaseAdapter\.js"/);
   assert.match(serviceWorker, /event\.request\.mode === "navigate"/);
   assert.match(serviceWorker, /fetch\(event\.request\)/);
+});
+
+test("service worker runtime-caches Google Static Maps thumbnails", async () => {
+  const serviceWorker = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
+
+  assert.match(serviceWorker, /STATIC_MAP_CACHE/);
+  assert.match(serviceWorker, /maps\.googleapis\.com/);
+  assert.match(serviceWorker, /\/maps\/api\/staticmap/);
+  assert.match(serviceWorker, /cacheStaticMapThumbnail/);
 });
 
 function assertHasNoStoreHeader(config, source) {

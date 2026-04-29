@@ -1,4 +1,5 @@
-const CACHE_NAME = "merhaba-world-v4";
+const CACHE_NAME = "merhaba-world-v5";
+const STATIC_MAP_CACHE = "merhaba-world-static-maps-v1";
 const LOCAL_ASSETS = [
   "/",
   "/index.html",
@@ -48,7 +49,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => ![CACHE_NAME, STATIC_MAP_CACHE].includes(key)).map((key) => caches.delete(key))))
   );
   self.clients.claim();
 });
@@ -56,6 +57,11 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
+  if (isGoogleStaticMap(url)) {
+    event.respondWith(cacheStaticMapThumbnail(event.request));
+    return;
+  }
+
   const networkFirst = event.request.mode === "navigate" || NETWORK_FIRST_PATHS.has(url.pathname);
 
   if (networkFirst) {
@@ -88,3 +94,24 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+
+function isGoogleStaticMap(url) {
+  return url.hostname === "maps.googleapis.com" && url.pathname === "/maps/api/staticmap";
+}
+
+async function cacheStaticMapThumbnail(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(request);
+    if (response.ok || response.type === "opaque") {
+      const clone = response.clone();
+      const cache = await caches.open(STATIC_MAP_CACHE);
+      await cache.put(request, clone);
+    }
+    return response;
+  } catch {
+    return Response.error();
+  }
+}

@@ -25,7 +25,14 @@ import {
   Users,
   X,
 } from "https://esm.sh/lucide-react@0.468.0?dev&deps=react@18.3.1";
-import { createDirectionsLink, createGoogleMapsSearchUrl, createMapLinks, normalizeGoogleMapsPlace } from "./lib/maps.js";
+import {
+  createDirectionsLink,
+  createGoogleMapsSearchUrl,
+  createMapLinks,
+  createStaticMapUrl,
+  inferCuisineInfo,
+  normalizeGoogleMapsPlace
+} from "./lib/maps.js";
 import { createAssistantLinks, createClockReminderLink, createClockReminderNote } from "./lib/assistantLinks.js";
 import { createIndexedDbStore } from "./lib/offlineStore.js";
 import {
@@ -931,6 +938,7 @@ function PlaceInsightCard({ entry }) {
 
   return React.createElement("div", { className: `daily-place-card ${place.kind ?? "place"}` },
     place.imageUrl && React.createElement("img", { className: "place-photo", src: place.imageUrl, alt: place.name, loading: "lazy" }),
+    !place.imageUrl && React.createElement(MapThumbnail, { subject: place, label: place.city || entry.typeLabel }),
     React.createElement("span", null, `${entry.time} · ${entry.typeLabel}`),
     React.createElement("strong", null, place.name),
     place.imageCredit && React.createElement("small", { className: "place-credit" }, place.imageCredit),
@@ -951,6 +959,31 @@ function PlaceInsightCard({ entry }) {
       )
     ),
     React.createElement("div", { className: "place-action-row" }, renderPlaceActions(place, mapLinks))
+  );
+}
+
+function MapThumbnail({ subject, label, className = "", markerLabel = "M" }) {
+  const [hasImageError, setHasImageError] = useState(false);
+  const staticMapImageUrl = createStaticMapUrl(subject, { markerLabel });
+  const title = subject?.name ?? subject?.title ?? subject?.googleMapsMeta?.title ?? "地图";
+  const fallbackLabel = label || subject?.city || "附近";
+
+  return React.createElement("div", { className: `map-thumbnail-card ${className}`.trim() },
+    staticMapImageUrl && !hasImageError
+      ? React.createElement("img", {
+          className: "google-static-map",
+          src: staticMapImageUrl,
+          alt: `${title} 地图缩略图`,
+          loading: "lazy",
+          referrerPolicy: "no-referrer",
+          onError: () => setHasImageError(true)
+        })
+      : React.createElement("div", { className: "offline-map-fallback" },
+          React.createElement(MapPin, { size: 18 }),
+          React.createElement("strong", null, "离线地图预览"),
+          React.createElement("span", null, title)
+        ),
+    React.createElement("span", { className: "map-thumbnail-label" }, fallbackLabel)
   );
 }
 
@@ -1023,15 +1056,7 @@ function FoodPanel({ trip, setTrip, selectedDay }) {
     React.createElement(SectionHeading, { icon: Utensils, title: "当地美食推荐", subtitle: "按当天城市筛选，也可从 Google Maps 粘贴餐厅" }),
     React.createElement("div", { className: "food-grid" },
       foods.map((food) =>
-        React.createElement("article", { key: food.id, className: "food-card" },
-          React.createElement("span", null, food.city),
-          React.createElement("strong", null, food.title),
-          React.createElement("p", null, food.description),
-          React.createElement("a", { href: createGoogleMapsSearchUrl(food.googleQuery), target: "_blank", rel: "noreferrer" },
-            React.createElement(Navigation, { size: 15 }),
-            React.createElement("span", null, "搜附近")
-          )
-        )
+        React.createElement(FoodRecommendationCard, { key: food.id, food })
       )
     ),
     React.createElement("div", { className: "restaurant-stack" },
@@ -1067,9 +1092,41 @@ function FoodPanel({ trip, setTrip, selectedDay }) {
   );
 }
 
+function FoodRecommendationCard({ food }) {
+  const cuisineInfo = inferCuisineInfo(food);
+
+  return React.createElement("article", { className: "food-card" },
+    React.createElement(MapThumbnail, {
+      subject: { title: food.googleQuery || food.title, city: food.city },
+      label: food.city,
+      className: "food-map-thumbnail",
+      markerLabel: "F"
+    }),
+    React.createElement("span", null, food.city),
+    React.createElement("strong", null, food.title),
+    React.createElement("p", null, food.description),
+    React.createElement(CuisineChipList, { cuisineInfo }),
+    React.createElement("a", { href: createGoogleMapsSearchUrl(food.googleQuery), target: "_blank", rel: "noreferrer" },
+      React.createElement(Navigation, { size: 15 }),
+      React.createElement("span", null, "搜附近")
+    )
+  );
+}
+
 function RestaurantCard({ restaurant }) {
   const meta = restaurant.googleMapsMeta ?? normalizeGoogleMapsPlace(restaurant.url || restaurant.title);
+  const cuisineInfo = inferCuisineInfo({ ...restaurant, googleMapsMeta: meta });
+  const mapSubject = {
+    ...restaurant,
+    name: restaurant.title || meta.title,
+    address: meta.query,
+    latitude: meta.latitude,
+    longitude: meta.longitude,
+    googleMapsMeta: meta
+  };
+
   return React.createElement("article", { className: "restaurant-card" },
+    React.createElement(MapThumbnail, { subject: mapSubject, label: restaurant.city ?? "餐厅附近", className: "restaurant-map-thumbnail", markerLabel: "R" }),
     React.createElement("header", null,
       React.createElement(MapPin, { size: 17 }),
       React.createElement("div", null,
@@ -1086,7 +1143,18 @@ function RestaurantCard({ restaurant }) {
         ? React.createElement("span", null, `${meta.latitude.toFixed(4)}, ${meta.longitude.toFixed(4)}`)
         : React.createElement("span", null, "无 key 链接解析"),
       React.createElement("span", null, meta.query || restaurant.title)
+    ),
+    React.createElement("div", { className: "restaurant-cuisine-panel" },
+      React.createElement("span", null, "大概菜式"),
+      React.createElement("p", null, cuisineInfo.summary),
+      React.createElement(CuisineChipList, { cuisineInfo })
     )
+  );
+}
+
+function CuisineChipList({ cuisineInfo }) {
+  return React.createElement("div", { className: "cuisine-chip-list" },
+    cuisineInfo.chips.map((chip) => React.createElement("span", { key: chip }, chip))
   );
 }
 
