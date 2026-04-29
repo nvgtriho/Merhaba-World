@@ -277,7 +277,7 @@ function Header({ trip, syncCloud, saveOffline, savedToast }) {
     React.createElement("div", { className: "brand-lockup" },
       React.createElement("img", { src: "/assets/icon.svg", alt: "", className: "brand-mark" }),
       React.createElement("div", null,
-        React.createElement("p", { className: "eyebrow" }, "Short trip command PWA"),
+        React.createElement("p", { className: "eyebrow" }, "Merhaba-World"),
         React.createElement("h1", null, trip.name)
       )
     ),

@@ -10,6 +10,13 @@ test("keeps import tooling and quick-jump wording out of the traveler-facing app
   assert.equal(source.includes("快速跳转"), false);
 });
 
+test("uses Merhaba-World as the visible app brand", async () => {
+  const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
+
+  assert.equal(source.includes("Merhaba-World"), true);
+  assert.equal(source.includes("Short trip command PWA"), false);
+});
+
 test("keeps map jumps on place chips instead of always-on action buttons", async () => {
   const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");

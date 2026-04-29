@@ -239,7 +239,7 @@ const placeGuides = {
 
 export const seedTrip = {
   id: "turkey-2026",
-  name: "五一小土特种兵行动台",
+  name: "Merhaba-World",
   destinationTemplate: "turkey",
   startDate: "2026-04-30",
   endDate: "2026-05-06",

@@ -1,7 +1,7 @@
 {
-  "name": "小土行动台",
-  "short_name": "小土行动",
-  "description": "短期旅行 PWA 行动面板：行程、天气互校验、地图跳转、收藏和常用语。",
+  "name": "Merhaba-World",
+  "short_name": "Merhaba",
+  "description": "Mobile travel PWA for itinerary actions, weather checks, maps, saved credentials, and trip collaboration.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -24,12 +24,12 @@
   ],
   "shortcuts": [
     {
-      "name": "今日行动",
+      "name": "Today",
       "url": "/#today"
     },
     {
-      "name": "Markdown 导入",
-      "url": "/#import"
+      "name": "Places",
+      "url": "/#places"
     }
   ]
 }

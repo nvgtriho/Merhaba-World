@@ -52,6 +52,17 @@ test("wires a deployment smoke-test script into package scripts", async () => {
   assert.equal(packageJson.scripts["test:deploy"], "node scripts/verify-deployment.mjs");
 });
 
+test("uses the repository name in browser and PWA display metadata", async () => {
+  const index = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const manifest = JSON.parse(await readFile(new URL("../manifest.webmanifest", import.meta.url), "utf8"));
+
+  assert.match(index, /<title>Merhaba-World<\/title>/);
+  assert.equal(manifest.name, "Merhaba-World");
+  assert.equal(manifest.short_name, "Merhaba");
+  assert.equal(index.includes("小土行动台"), false);
+  assert.equal(manifest.name.includes("小土"), false);
+});
+
 test("deployment verifier accepts a local static preview serving cached PWA assets", async () => {
   const server = createStaticServer();
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

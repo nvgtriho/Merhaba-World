@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { seedMarkdown, seedTrip } from "../src/data/tripSeed.js";
 
+test("uses the repository name as the app title", () => {
+  assert.equal(seedTrip.name, "Merhaba-World");
+  assert.equal(seedTrip.name.includes("short-trip-command-pwa"), false);
+  assert.equal(seedTrip.name.includes("五一小土特种兵行动台"), false);
+});
+
 test("imports the full markdown plan through May 6 into seed data", () => {
   assert.equal(seedMarkdown.includes("5.6"), true);
   assert.equal(seedMarkdown.includes("TK2001"), true);
