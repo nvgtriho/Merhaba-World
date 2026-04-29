@@ -23,7 +23,7 @@ import {
   Users,
   X,
 } from "https://esm.sh/lucide-react@0.468.0?dev&deps=react@18.3.1";
-import { createDirectionsLink, createMapLinks } from "./lib/maps.js";
+import { createDirectionsLink, createGoogleMapsSearchUrl, createMapLinks, normalizeGoogleMapsPlace } from "./lib/maps.js";
 import { createIndexedDbStore } from "./lib/offlineStore.js";
 import {
   compareWeatherSources,
@@ -73,10 +73,13 @@ function App() {
     updatedBy: "",
     message: supabaseAdapter.mode === "supabase" ? "可推送云端" : "本地演示云端"
   });
+  const [hasLoadedCloud, setHasLoadedCloud] = useState(false);
   const selectedDay = trip.days.find((day) => day.date === selectedDate) ?? trip.days[0];
   const dayItems = trip.items.filter((item) => item.date === selectedDay.date);
   const currentPlace = trip.places.find((place) => selectedDay.city.includes(place.city)) ?? trip.places[0];
-  const selectedWeather = externalWeather[selectedDay.date];
+  const dayWeatherLocations = getDayWeatherLocations(selectedDay, dayItems, trip.places, currentPlace);
+  const weatherLocationSignature = dayWeatherLocations.map((location) => `${location.key}:${location.latitude},${location.longitude}`).join("|");
+  const selectedWeather = externalWeather[weatherCacheKey(selectedDay.date, dayWeatherLocations[0]?.key ?? "primary")];
   const selectedWeatherSnapshots = selectedWeather?.snapshot
     ? [selectedWeather.snapshot, ...selectedDay.weatherSnapshots]
     : selectedDay.weatherSnapshots;
@@ -85,6 +88,22 @@ function App() {
     : selectedDay.hourlyForecast;
   const weatherStatus = createWeatherStatus(selectedWeather, selectedDay);
   const weatherReport = compareWeatherSources(selectedWeatherSnapshots);
+  const weatherLocationReports = dayWeatherLocations.map((location, index) => {
+    const liveWeather = externalWeather[weatherCacheKey(selectedDay.date, location.key)];
+    const snapshots = liveWeather?.snapshot
+      ? [liveWeather.snapshot]
+      : index === 0
+        ? selectedDay.weatherSnapshots
+        : createLocationFallbackSnapshots(location, selectedDay.weatherSnapshots);
+    const summary = summarizeWeather(snapshots);
+    return {
+      location,
+      weather: liveWeather,
+      snapshots,
+      summary,
+      hourlyForecast: liveWeather?.hourlyForecast?.length ? liveWeather.hourlyForecast : selectedDay.hourlyForecast
+    };
+  });
 
   const placesWithLinks = useMemo(
     () =>
@@ -98,36 +117,39 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    if (!selectedDay.weatherLocation) {
-      setExternalWeather((current) => ({
-        ...current,
-        [selectedDay.date]: { source: "fallback", sourceLabel: "本地兜底" }
-      }));
+    if (!dayWeatherLocations.length) {
       return () => {
         cancelled = true;
       };
     }
 
-    fetchOpenMeteoForecast(selectedDay.weatherLocation, selectedDay.date)
-      .then((weather) => {
-        if (cancelled) return;
-        setExternalWeather((current) => ({
-          ...current,
-          [selectedDay.date]: weather ?? { source: "fallback", sourceLabel: "本地兜底" }
-        }));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setExternalWeather((current) => ({
-          ...current,
-          [selectedDay.date]: { source: "fallback", sourceLabel: "本地兜底" }
-        }));
+    Promise.all(dayWeatherLocations.map((location) =>
+      fetchOpenMeteoForecast(location, selectedDay.date)
+        .then((weather) => ({ location, weather: weather ?? { source: "fallback", sourceLabel: "本地兜底" } }))
+        .catch(() => ({ location, weather: { source: "fallback", sourceLabel: "本地兜底" } }))
+    )).then((results) => {
+      if (cancelled) return;
+      setExternalWeather((current) => {
+        const next = { ...current };
+        for (const result of results) {
+          next[weatherCacheKey(selectedDay.date, result.location.key)] = result.weather;
+        }
+        return next;
       });
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedDay.date, selectedDay.weatherLocation]);
+  }, [selectedDay.date, weatherLocationSignature]);
+
+  useEffect(() => {
+    let cancelled = false;
+    pullLatestCloud({ silent: true, isCancelled: () => cancelled });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function saveOffline() {
     await store.put("trips", trip);
@@ -168,10 +190,11 @@ function App() {
     setSavedToast(result.message);
   }
 
-  async function pullCloud() {
+  async function pullLatestCloud(options = {}) {
     if (typeof localStorage !== "undefined") localStorage.setItem("short-trip-sync-editor", syncEditor);
-    setSyncState((current) => ({ ...current, status: "syncing", message: "正在拉取云端" }));
+    if (!options.silent) setSyncState((current) => ({ ...current, status: "syncing", message: "正在拉取云端" }));
     const result = await supabaseAdapter.pullTrip(trip.id);
+    if (options.isCancelled?.()) return result;
     if (result.ok) {
       setTrip(result.trip);
       setSyncState({
@@ -182,10 +205,16 @@ function App() {
         updatedBy: result.updatedBy,
         message: result.message
       });
+      setHasLoadedCloud(true);
     } else {
-      setSyncState((current) => ({ ...current, status: result.missing ? "empty" : "error", message: result.message }));
+      setSyncState((current) => ({ ...current, status: result.missing ? current.status : "error", message: result.missing && options.silent ? current.message : result.message }));
     }
-    setSavedToast(result.message);
+    if (!options.silent) setSavedToast(result.message);
+    return result;
+  }
+
+  async function pullCloud() {
+    return pullLatestCloud({ silent: false });
   }
 
   return React.createElement(
@@ -229,6 +258,7 @@ function App() {
               weatherSnapshots: selectedWeatherSnapshots,
               hourlyForecast: selectedHourlyForecast,
               weatherStatus,
+              weatherLocationReports,
               trip,
               setTrip: updateTrip
             })
@@ -270,6 +300,78 @@ function createWeatherStatus(selectedWeather, selectedDay) {
 
 function formatShortDate(date) {
   return typeof date === "string" ? date.slice(5).replace("-", ".") : "";
+}
+
+function weatherCacheKey(date, key) {
+  return `${date}:${key ?? "primary"}`;
+}
+
+const WEATHER_LOCATION_PRESETS = [
+  { match: /伊斯坦布尔|Istanbul|IST/i, name: "伊斯坦布尔", shortLabel: "IST", latitude: 41.0082, longitude: 28.9784 },
+  { match: /伊兹密尔|Izmir|ADB|阿德楠/i, name: "伊兹密尔", shortLabel: "ADB", latitude: 38.4237, longitude: 27.1428 },
+  { match: /塞尔丘克|Selcuk|以弗所|Ephesus/i, name: "塞尔丘克", shortLabel: "Selcuk", latitude: 37.9514, longitude: 27.3685 },
+  { match: /厄吕代尼兹|Oludeniz|费特希耶|Fethiye|Lycian|蝴蝶谷/i, name: "费特希耶", shortLabel: "Fethiye", latitude: 36.6596, longitude: 29.1263 },
+  { match: /安塔利亚|Antalya/i, name: "安塔利亚", shortLabel: "Antalya", latitude: 36.8969, longitude: 30.7133 },
+  { match: /格雷梅|Goreme|Göreme|卡帕多奇亚|Cappadocia|NAV|内夫谢希尔|Nevsehir|Uchisar|Love Valley/i, name: "格雷梅", shortLabel: "Goreme", latitude: 38.6431, longitude: 34.8289 }
+];
+
+function getDayWeatherLocations(selectedDay, dayItems, places, currentPlace) {
+  const candidates = [
+    { place: currentPlace, item: null },
+    ...dayItems.flatMap((item) => [
+      { place: resolveItemPlace(item, places), item },
+      { place: resolveDestinationPlace(item, places), item }
+    ])
+  ];
+  const seen = new Set();
+  const locations = [];
+  for (const candidate of candidates) {
+    const location = resolveWeatherLocation(candidate.place, selectedDay);
+    if (!location) continue;
+    const key = location.key ?? `${location.name}-${location.latitude}-${location.longitude}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    locations.push({ ...location, key });
+    if (locations.length >= 4) break;
+  }
+  if (!locations.length && selectedDay.weatherLocation) {
+    locations.push({ ...selectedDay.weatherLocation, key: "primary", shortLabel: selectedDay.weatherLocation.name });
+  }
+  return locations;
+}
+
+function resolveWeatherLocation(place, selectedDay) {
+  const text = `${place?.name ?? ""} ${place?.city ?? ""} ${place?.address ?? ""}`;
+  const preset = WEATHER_LOCATION_PRESETS.find((entry) => entry.match.test(text));
+  if (preset) {
+    return {
+      key: preset.shortLabel,
+      name: preset.name,
+      shortLabel: preset.shortLabel,
+      latitude: preset.latitude,
+      longitude: preset.longitude
+    };
+  }
+  if (Number.isFinite(place?.latitude) && Number.isFinite(place?.longitude)) {
+    return {
+      key: place.id ?? place.name,
+      name: place.name,
+      shortLabel: shortPlaceName(place.name),
+      latitude: place.latitude,
+      longitude: place.longitude
+    };
+  }
+  return selectedDay.weatherLocation
+    ? { ...selectedDay.weatherLocation, key: "primary", shortLabel: selectedDay.weatherLocation.name }
+    : null;
+}
+
+function createLocationFallbackSnapshots(location, baseSnapshots = []) {
+  return baseSnapshots.map((snapshot) => ({
+    ...snapshot,
+    sourceId: `${location.key}-${snapshot.sourceId}`,
+    sourceName: `${location.shortLabel ?? location.name} · ${snapshot.sourceName}`
+  }));
 }
 
 function Header({ trip, syncCloud, saveOffline, savedToast }) {
@@ -521,8 +623,28 @@ function DayActionPanel({ selectedDay, dayItems, places, trip, setTrip, setActiv
       ),
       React.createElement("div", { className: "edit-list" },
         dayItems.map((item) =>
-          React.createElement("div", { key: `edit-${item.id}`, className: "edit-row" },
+          React.createElement("div", { key: `edit-${item.id}`, className: "action-edit-grid" },
             React.createElement("input", { value: item.title, onChange: (event) => updateItem(item.id, { title: event.target.value }), "aria-label": "行动标题" }),
+            React.createElement("select", { value: item.type ?? "note", onChange: (event) => updateItem(item.id, { type: event.target.value }), "aria-label": "行动类型" },
+              ["transport", "activity", "lodging", "food", "note"].map((type) =>
+                React.createElement("option", { key: type, value: type }, type)
+              )
+            ),
+            React.createElement("input", { value: item.startTime ?? "", onChange: (event) => updateItem(item.id, { startTime: event.target.value || null }), placeholder: "开始时间", "aria-label": "开始时间" }),
+            React.createElement("input", { value: item.endTime ?? "", onChange: (event) => updateItem(item.id, { endTime: event.target.value || null }), placeholder: "结束时间", "aria-label": "结束时间" }),
+            React.createElement("select", { value: item.primaryPlaceId ?? "", onChange: (event) => updateItem(item.id, { primaryPlaceId: event.target.value || null }), "aria-label": "地点" },
+              React.createElement("option", { value: "" }, "未绑定地点"),
+              places.map((place) => React.createElement("option", { key: place.id, value: place.id }, place.name))
+            ),
+            React.createElement("select", { value: item.destinationPlaceId ?? "", onChange: (event) => updateItem(item.id, { destinationPlaceId: event.target.value || null }), "aria-label": "目的地" },
+              React.createElement("option", { value: "" }, "无目的地"),
+              places.map((place) => React.createElement("option", { key: place.id, value: place.id }, place.name))
+            ),
+            React.createElement("input", { value: item.address ?? "", onChange: (event) => updateItem(item.id, { address: event.target.value }), placeholder: "行动地址", "aria-label": "行动地址" }),
+            React.createElement("select", { className: "asset-picker", value: item.assetIds?.[0] ?? "", onChange: (event) => updateItem(item.id, { assetIds: event.target.value ? [event.target.value] : [] }), "aria-label": "关联凭证" },
+              React.createElement("option", { value: "" }, "未绑定凭证"),
+              (trip.assets ?? []).map((asset) => React.createElement("option", { key: asset.id, value: asset.id }, asset.title))
+            ),
             React.createElement("input", { value: item.notes?.[0] ?? "", onChange: (event) => updateItemNote(item, event.target.value), "aria-label": "行动说明" }),
             React.createElement("button", { onClick: () => removeItem(item.id), title: "删除行动" }, React.createElement(Trash2, { size: 15 }))
           )
@@ -532,7 +654,7 @@ function DayActionPanel({ selectedDay, dayItems, places, trip, setTrip, setActiv
   );
 }
 
-function WeatherPanel({ selectedDay, currentPlace, weatherSnapshots, hourlyForecast, weatherStatus, trip, setTrip }) {
+function WeatherPanel({ selectedDay, currentPlace, weatherSnapshots, hourlyForecast, weatherStatus, weatherLocationReports, trip, setTrip }) {
   const [draft, setDraft] = useState({ sourceName: "", highC: "", lowC: "", precipitationChance: "", windKmh: "" });
   const sources = turkeyWeatherSources(currentPlace.city || currentPlace.name);
   const report = compareWeatherSources(weatherSnapshots ?? selectedDay.weatherSnapshots);
@@ -609,6 +731,11 @@ function WeatherPanel({ selectedDay, currentPlace, weatherSnapshots, hourlyForec
         React.createElement("i", { style: { width: `${Math.min(report.sourceCount * 30, 100)}%` } })
       )
     ),
+    React.createElement("div", { className: "weather-location-grid" },
+      weatherLocationReports.map((report) =>
+        React.createElement(WeatherLocationCard, { key: report.location.key, report })
+      )
+    ),
     React.createElement(HourlyWeatherChart, { forecast: hourlyForecast ?? selectedDay.hourlyForecast ?? [], summary }),
     React.createElement("div", { className: "source-list" },
       sources.map((source) =>
@@ -655,6 +782,15 @@ function WeatherPanel({ selectedDay, currentPlace, weatherSnapshots, hourlyForec
         )
       )
     )
+  );
+}
+
+function WeatherLocationCard({ report }) {
+  const { location, summary, weather } = report;
+  return React.createElement("article", { className: "weather-location-card" },
+    React.createElement("span", null, location.shortLabel ?? location.name),
+    React.createElement("strong", null, `${summary.lowC}°-${summary.highC}°`),
+    React.createElement("small", null, `${weather?.sourceLabel ?? "本地兜底"} · 雨${summary.precipitationChance}% · 风${summary.windKmh}km/h`)
   );
 }
 
@@ -757,12 +893,37 @@ function ItineraryActionCard({ item, places, assets = [], setActiveView, onRemov
 
 function DayPlaceDirectory({ selectedDay, dayItems, places, links, days, trip, setTrip, setSelectedDate }) {
   const dailyPlaces = createDailyPlaces(dayItems, places);
+  const [placeDraft, setPlaceDraft] = useState("");
 
   function updatePlace(placeId, patch) {
     setTrip({
       ...trip,
       places: trip.places.map((place) => place.id === placeId ? { ...place, ...patch } : place)
     });
+  }
+
+  function importGooglePlace() {
+    const normalized = normalizeGoogleMapsPlace(placeDraft);
+    if (!placeDraft.trim()) return;
+    setTrip({
+      ...trip,
+      places: [
+        ...trip.places,
+        {
+          id: `place-google-${Date.now()}`,
+          name: normalized.title,
+          kind: "place",
+          city: selectedDay.city.split(/[ /]+/).find(Boolean) ?? selectedDay.city,
+          address: normalized.query,
+          latitude: normalized.latitude,
+          longitude: normalized.longitude,
+          externalUrl: normalized.href,
+          externalLabel: "Google Maps",
+          googleMapsMeta: normalized
+        }
+      ]
+    });
+    setPlaceDraft("");
   }
 
   return React.createElement("article", { className: "panel" },
@@ -789,6 +950,13 @@ function DayPlaceDirectory({ selectedDay, dayItems, places, links, days, trip, s
       )
     ),
     React.createElement(EditDrawer, { label: "编辑地点" },
+      React.createElement("div", { className: "place-google-import" },
+        React.createElement("input", { value: placeDraft, onChange: (event) => setPlaceDraft(event.target.value), placeholder: "粘贴 Google Maps 地点链接或地点名" }),
+        React.createElement("button", { className: "primary-button", onClick: importGooglePlace },
+          React.createElement(Plus, { size: 18 }),
+          React.createElement("span", null, "导入地点")
+        )
+      ),
       React.createElement("div", { className: "edit-list" },
         dailyPlaces.filter((entry) => entry.place.id && !entry.place.id.startsWith("item-place-")).map((entry) =>
           React.createElement("div", { key: `edit-${entry.key}`, className: "edit-row" },
@@ -852,7 +1020,7 @@ function FoodPanel({ trip, setTrip, selectedDay }) {
   const restaurants = getDailyRestaurantLinks(trip, selectedDay);
 
   function addRestaurant() {
-    const normalized = normalizeGoogleMapsRestaurant(draft.url || draft.title);
+    const normalized = normalizeGoogleMapsPlace(draft.url || draft.title);
     const title = draft.title.trim() || normalized.title;
     if (!title) return;
     setTrip({
@@ -865,6 +1033,7 @@ function FoodPanel({ trip, setTrip, selectedDay }) {
           date: selectedDay.date,
           city: selectedDay.city,
           url: normalized.href,
+          googleMapsMeta: normalized,
           source: "google"
         }
       ]
@@ -912,11 +1081,7 @@ function FoodPanel({ trip, setTrip, selectedDay }) {
     ),
     React.createElement("div", { className: "restaurant-stack" },
       restaurants.map((restaurant) =>
-        React.createElement("a", { key: restaurant.id, className: "restaurant-link", href: restaurant.url, target: "_blank", rel: "noreferrer" },
-          React.createElement(MapPin, { size: 16 }),
-          React.createElement("span", null, restaurant.title),
-          React.createElement(ExternalLink, { size: 14 })
-        )
+        React.createElement(RestaurantCard, { key: restaurant.id, restaurant })
       )
     ),
     React.createElement(EditDrawer, { label: "编辑美食" },
@@ -947,6 +1112,29 @@ function FoodPanel({ trip, setTrip, selectedDay }) {
   );
 }
 
+function RestaurantCard({ restaurant }) {
+  const meta = restaurant.googleMapsMeta ?? normalizeGoogleMapsPlace(restaurant.url || restaurant.title);
+  return React.createElement("article", { className: "restaurant-card" },
+    React.createElement("header", null,
+      React.createElement(MapPin, { size: 17 }),
+      React.createElement("div", null,
+        React.createElement("strong", null, restaurant.title || meta.title),
+        React.createElement("span", null, restaurant.city ?? meta.query ?? "Google Maps")
+      ),
+      React.createElement("a", { href: restaurant.url || meta.href, target: "_blank", rel: "noreferrer", title: "打开 Google Maps" },
+        React.createElement(ExternalLink, { size: 15 })
+      )
+    ),
+    React.createElement("div", { className: "restaurant-meta-grid" },
+      React.createElement("span", null, "Google Maps"),
+      meta.latitude && meta.longitude
+        ? React.createElement("span", null, `${meta.latitude.toFixed(4)}, ${meta.longitude.toFixed(4)}`)
+        : React.createElement("span", null, "无 key 链接解析"),
+      React.createElement("span", null, meta.query || restaurant.title)
+    )
+  );
+}
+
 function EditDrawer({ label = "编辑", children }) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -964,6 +1152,7 @@ function MysticPanel({ selectedDay, trip, setTrip }) {
   const baseLinks = selectedDay.mystic?.links ?? [];
   const savedLinks = (trip.mysticLinks ?? []).filter((link) => !link.date || link.date === selectedDay.date);
   const links = [...baseLinks, ...savedLinks];
+  const moonInfo = getMoonPhaseInfo(selectedDay.date);
 
   function addMysticLink() {
     const normalized = normalizeExternalLink(draft.url || draft.title);
@@ -985,6 +1174,11 @@ function MysticPanel({ selectedDay, trip, setTrip }) {
       React.createElement("span", null, selectedDay.mystic?.luckyColor ?? "今日色彩"),
       React.createElement("strong", null, selectedDay.mystic?.summary ?? "今天宜稳住节奏。"),
       React.createElement("p", null, `关注：${selectedDay.mystic?.focus ?? selectedDay.city}`)
+    ),
+    React.createElement("div", { className: "moon-phase-summary" },
+      React.createElement("span", null, "Moon"),
+      React.createElement("strong", null, moonInfo.label),
+      React.createElement("small", null, `照明约 ${moonInfo.illumination}% · ${moonInfo.advice}`)
     ),
     React.createElement("div", { className: "mystic-link-deck" },
       links.map((link) => {
@@ -1019,16 +1213,38 @@ function getMysticLinkMeta(link) {
   if (url.includes("astrology.com")) {
     return { tone: "astro", kicker: "ASTRO", title: "每日星座", copy: "英文星座日运，适合快速对照当天节奏" };
   }
-  if (url.includes("xzw.com")) {
-    return { tone: "daily", kicker: "LUCK", title: "中文运势", copy: "中文每日运势入口，补一眼情绪和宜忌" };
+  if (url.includes("astro-seek.com")) {
+    return { tone: "daily", kicker: "TRANSIT", title: "Astro-Seek", copy: "行星相位和当日天象，比泛泛运势更有参考感" };
+  }
+  if (url.includes("cafeastrology.com")) {
+    return { tone: "daily", kicker: "CAFE", title: "Cafe Astrology", copy: "英文日运入口，文字质量相对稳定" };
   }
   return { tone: "custom", kicker: "LINK", title, copy: "自定义玄学参考" };
+}
+
+function getMoonPhaseInfo(date) {
+  const synodicMonth = 29.53058867;
+  const referenceNewMoon = Date.UTC(2000, 0, 6, 18, 14);
+  const current = Date.parse(`${date}T12:00:00Z`);
+  const age = ((((current - referenceNewMoon) / 86400000) % synodicMonth) + synodicMonth) % synodicMonth;
+  const illumination = Math.round(((1 - Math.cos((2 * Math.PI * age) / synodicMonth)) / 2) * 100);
+  const label = age < 1.85 ? "新月附近"
+    : age < 7.38 ? "娥眉月"
+      : age < 9.23 ? "上弦月"
+        : age < 14.77 ? "盈凸月"
+          : age < 16.62 ? "满月附近"
+            : age < 22.15 ? "亏凸月"
+              : age < 24 ? "下弦月"
+                : "残月";
+  const advice = illumination >= 85 ? "适合把重点事项提前确认" : illumination <= 20 ? "适合轻装和留白" : "适合按计划推进";
+  return { label, illumination, advice };
 }
 
 function PhraseLauncher({ phrases, variant = "card" }) {
   const [isPhraseOpen, setIsPhraseOpen] = useState(false);
   const isMini = variant === "mini";
   const launcherClassName = isMini ? "home-widget-button phrase-mini-widget" : "phrase-launcher-card";
+  const aiPrompt = createAiTranslatorPrompt();
 
   return React.createElement(React.Fragment, null,
     React.createElement("button", { className: launcherClassName, onClick: () => setIsPhraseOpen(true) },
@@ -1049,6 +1265,17 @@ function PhraseLauncher({ phrases, variant = "card" }) {
             React.createElement(X, { size: 18 })
           )
         ),
+        React.createElement("div", { className: "ai-language-links" },
+          React.createElement("small", null, aiPrompt),
+          React.createElement("a", { href: "https://chatgpt.com/", target: "_blank", rel: "noreferrer" },
+            React.createElement(Sparkles, { size: 15 }),
+            React.createElement("span", null, "ChatGPT")
+          ),
+          React.createElement("a", { href: "https://gemini.google.com/app", target: "_blank", rel: "noreferrer" },
+            React.createElement(Sparkles, { size: 15 }),
+            React.createElement("span", null, "Gemini")
+          )
+        ),
         React.createElement("div", { className: "phrase-grid" },
           phrases.map((phrase) =>
             React.createElement("div", { key: phrase.id, className: "phrase-card" },
@@ -1061,6 +1288,10 @@ function PhraseLauncher({ phrases, variant = "card" }) {
       )
     )
   );
+}
+
+function createAiTranslatorPrompt() {
+  return "帮我把中文自然翻成土耳其语，语气礼貌简短；如果是和司机、酒店或餐厅沟通，请直接给可复制句子。";
 }
 
 function CollectionPanel({ trip, setTrip, selectedDay }) {
@@ -1325,17 +1556,6 @@ function normalizeExternalLink(raw) {
   return { href, title: readableHost(href) };
 }
 
-function normalizeGoogleMapsRestaurant(raw) {
-  const text = String(raw ?? "").trim();
-  const foundUrl = extractFirstUrl(text);
-  if (foundUrl) return { href: foundUrl, title: "Google 餐厅" };
-  return { href: createGoogleMapsSearchUrl(text || "restaurant"), title: text || "Google 餐厅" };
-}
-
-function createGoogleMapsSearchUrl(query) {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-}
-
 function extractFirstUrl(raw) {
   return String(raw ?? "").match(/https?:\/\/[^\s，。)）]+/i)?.[0] ?? "";
 }
@@ -1567,7 +1787,15 @@ function inferPlaceName(item) {
 function calendarLink(day, items) {
   const text = encodeURIComponent(`${day.title} ${day.city} 行动提醒`);
   const details = encodeURIComponent(items.map((item) => `${item.startTime ?? "--:--"} ${item.title}`).join("\n"));
-  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&details=${details}`;
+  const start = day.date.replaceAll("-", "");
+  const end = addDays(day.date, 1).replaceAll("-", "");
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&details=${details}&dates=${start}/${end}`;
+}
+
+function addDays(date, days) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
 }
 
 if ("serviceWorker" in navigator) {

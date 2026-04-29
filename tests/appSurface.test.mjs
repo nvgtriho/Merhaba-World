@@ -200,7 +200,7 @@ test("adds food recommendations with Google Maps restaurant import and jump link
   const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
 
   assert.equal(source.includes("FoodPanel"), true);
-  assert.equal(source.includes("normalizeGoogleMapsRestaurant"), true);
+  assert.equal(source.includes("normalizeGoogleMapsPlace"), true);
   assert.equal(source.includes("Google 导入餐厅"), true);
   assert.equal(source.includes('activeView === "food"'), true);
 });
@@ -227,10 +227,15 @@ test("adds a mystic detail view reachable from the cover summary", async () => {
   assert.equal(source.includes("今日玄学"), true);
   assert.equal(source.includes("mystic-link-deck"), true);
   assert.equal(source.includes("getMysticLinkMeta"), true);
+  assert.equal(source.includes("getMoonPhaseInfo"), true);
+  assert.equal(source.includes("moon-phase-summary"), true);
+  assert.equal(source.includes("Astro-Seek"), true);
+  assert.equal(source.includes("xzw.com"), false);
   assert.equal(source.includes("只保留一句判断"), false);
   assert.equal(source.includes("细节放到外链里"), false);
   assert.equal(styles.includes(".mystic-link-deck"), true);
   assert.equal(styles.includes(".mystic-source-card"), true);
+  assert.equal(styles.includes(".moon-phase-summary"), true);
 });
 
 test("adds a lightweight cloud snapshot panel for two-person editing", async () => {
@@ -240,6 +245,8 @@ test("adds a lightweight cloud snapshot panel for two-person editing", async () 
   assert.equal(source.includes("syncState"), true);
   assert.equal(source.includes("pushCloud"), true);
   assert.equal(source.includes("pullCloud"), true);
+  assert.equal(source.includes("pullLatestCloud"), true);
+  assert.equal(source.includes("hasLoadedCloud"), true);
   assert.equal(source.includes("sync-editor-input"), true);
   assert.equal(source.includes("测试同步状态"), false);
   assert.equal(adapter.includes("trip_snapshots"), true);
@@ -252,13 +259,52 @@ test("renders an hourly weather time-series chart instead of only static source 
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
 
   assert.equal(source.includes("HourlyWeatherChart"), true);
+  assert.equal(source.includes("WeatherLocationCard"), true);
+  assert.equal(source.includes("getDayWeatherLocations"), true);
+  assert.equal(source.includes("weatherLocationReports"), true);
   assert.equal(source.includes("weather-timeline-chart"), true);
+  assert.equal(source.includes("weather-location-grid"), true);
   assert.equal(source.includes("wide-weather-chart"), true);
   assert.equal(source.includes("WEATHER_CHART_WIDTH"), true);
   assert.equal(source.includes("hourly-scroller"), true);
   assert.equal(styles.includes(".weather-timeline-chart"), true);
+  assert.equal(styles.includes(".weather-location-grid"), true);
   assert.equal(styles.includes(".hourly-scroller"), true);
   assert.equal(styles.includes("repeat(6, minmax(0, 1fr))"), false);
+});
+
+test("supports no-key Google Maps imports for restaurants and places", async () => {
+  const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  assert.equal(source.includes("normalizeGoogleMapsPlace"), true);
+  assert.equal(source.includes("restaurant-card"), true);
+  assert.equal(source.includes("restaurant-meta-grid"), true);
+  assert.equal(source.includes("place-google-import"), true);
+  assert.equal(source.includes("importGooglePlace"), true);
+  assert.equal(styles.includes(".restaurant-card"), true);
+  assert.equal(styles.includes(".place-google-import"), true);
+});
+
+test("lets action edits update timing, places, addresses, and credential bindings", async () => {
+  const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
+
+  assert.equal(source.includes("action-edit-grid"), true);
+  assert.equal(source.includes("asset-picker"), true);
+  assert.equal(source.includes("primaryPlaceId"), true);
+  assert.equal(source.includes("destinationPlaceId"), true);
+  assert.equal(source.includes("行动地址"), true);
+});
+
+test("adds ChatGPT and Gemini language helpers", async () => {
+  const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  assert.equal(source.includes("ai-language-links"), true);
+  assert.equal(source.includes("ChatGPT"), true);
+  assert.equal(source.includes("Gemini"), true);
+  assert.equal(source.includes("createAiTranslatorPrompt"), true);
+  assert.equal(styles.includes(".ai-language-links"), true);
 });
 
 test("loads external weather and auto-selects the nearest trip date", async () => {

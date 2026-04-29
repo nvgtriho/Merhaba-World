@@ -128,13 +128,13 @@ test("adds daily mystic summaries and hourly weather data for every trip day", (
 });
 
 test("uses curated mystic links instead of generic search result pages", () => {
-  const trustedHosts = ["timeanddate.com", "astrology.com", "xzw.com"];
+  const trustedHosts = ["timeanddate.com", "astrology.com", "astro-seek.com"];
 
   for (const day of seedTrip.days) {
     const urls = day.mystic.links.map((link) => new URL(link.url));
 
     assert.equal(urls.some((url) => url.hostname.includes("timeanddate.com")), true);
-    assert.equal(urls.some((url) => url.hostname.includes("astrology.com") || url.hostname.includes("xzw.com")), true);
+    assert.equal(urls.some((url) => url.hostname.includes("astrology.com") || url.hostname.includes("astro-seek.com")), true);
     assert.equal(urls.every((url) => trustedHosts.some((host) => url.hostname.includes(host))), true);
     assert.equal(urls.every((url) => !url.hostname.includes("google.")), true);
   }

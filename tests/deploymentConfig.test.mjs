@@ -99,10 +99,12 @@ test("service worker precaches recognized wiki credential screenshots", async ()
 test("service worker bumps cache version and refreshes app shell resources from the network", async () => {
   const serviceWorker = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
 
-  assert.match(serviceWorker, /CACHE_NAME = "merhaba-world-v1"/);
+  assert.match(serviceWorker, /CACHE_NAME = "merhaba-world-v2"/);
   assert.match(serviceWorker, /NETWORK_FIRST_PATHS/);
   assert.match(serviceWorker, /"\/src\/App\.js"/);
   assert.match(serviceWorker, /"\/src\/styles\.css"/);
+  assert.match(serviceWorker, /"\/src\/data\/tripSeed\.js"/);
+  assert.match(serviceWorker, /"\/src\/lib\/maps\.js"/);
   assert.match(serviceWorker, /event\.request\.mode === "navigate"/);
   assert.match(serviceWorker, /fetch\(event\.request\)/);
 });

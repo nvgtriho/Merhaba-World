@@ -125,7 +125,7 @@ function createMysticLinks(dayId, moonTitle, moonUrl) {
   return [
     { id: `mystic-${dayId}-moon`, title: moonTitle, url: moonUrl },
     { id: `mystic-${dayId}-astro`, title: "Astrology.com 每日星座", url: "https://www.astrology.com/horoscope/daily.html" },
-    { id: `mystic-${dayId}-xzw`, title: "星座屋每日运势", url: "https://m.xzw.com/fortune/" }
+    { id: `mystic-${dayId}-astro-seek`, title: "Astro-Seek 每日天象", url: "https://horoscopes.astro-seek.com/current-planets-astrology-transits-planetary-positions" }
   ];
 }
 

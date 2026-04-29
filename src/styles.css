@@ -793,6 +793,38 @@ h3 {
   margin-bottom: 12px;
 }
 
+.weather-location-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.weather-location-card {
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border: 1px solid rgba(37, 109, 133, 0.12);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, #ffffff, #f5fbfd);
+}
+
+.weather-location-card span {
+  color: var(--coral);
+  font-size: 0.74rem;
+  font-weight: 950;
+}
+
+.weather-location-card strong {
+  font-size: 1.08rem;
+  font-weight: 950;
+}
+
+.weather-location-card small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .weather-meter > div {
   display: grid;
   grid-template-columns: 44px 58px 1fr;
@@ -1278,6 +1310,34 @@ textarea {
   background: #fff4ea;
 }
 
+.action-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 7px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid rgba(37, 109, 133, 0.1);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.action-edit-grid input:first-child {
+  grid-column: 1 / -1;
+}
+
+.action-edit-grid .asset-picker,
+.action-edit-grid input[aria-label="行动说明"] {
+  grid-column: span 2;
+}
+
+.action-edit-grid button {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  color: #8f4b3f;
+  background: #fff4ea;
+}
+
 .editable-row,
 .jump-row {
   display: grid;
@@ -1336,6 +1396,12 @@ textarea {
   display: grid;
   gap: 9px;
   margin-top: 12px;
+}
+
+.place-google-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
 }
 
 .daily-place-card {
@@ -1824,6 +1890,64 @@ textarea {
   background: #eaf3f7;
 }
 
+.restaurant-card {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid rgba(37, 109, 133, 0.12);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, #ffffff, #f7fbfc);
+}
+
+.restaurant-card header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 9px;
+  align-items: center;
+}
+
+.restaurant-card header svg {
+  color: var(--green);
+}
+
+.restaurant-card header strong,
+.restaurant-card header span {
+  display: block;
+}
+
+.restaurant-card header span,
+.restaurant-meta-grid span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.restaurant-card header a {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  color: #ffffff;
+  background: var(--green);
+}
+
+.restaurant-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.restaurant-meta-grid span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 6px 7px;
+  border-radius: var(--radius);
+  background: rgba(234, 243, 247, 0.72);
+}
+
 .mystic-detail-card {
   display: grid;
   gap: 8px;
@@ -1852,6 +1976,35 @@ textarea {
 }
 
 .mystic-detail-card p {
+  color: var(--muted);
+}
+
+.moon-phase-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid rgba(37, 109, 133, 0.12);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, #f8fbfc, #fff8ed);
+}
+
+.moon-phase-summary span {
+  grid-row: span 2;
+  border-radius: 99px;
+  padding: 5px 9px;
+  color: #8f4b3f;
+  background: rgba(239, 143, 122, 0.14);
+  font-size: 0.7rem;
+  font-weight: 950;
+}
+
+.moon-phase-summary strong {
+  font-size: 1rem;
+}
+
+.moon-phase-summary small {
   color: var(--muted);
 }
 
@@ -2005,6 +2158,35 @@ textarea {
   justify-content: center;
 }
 
+.ai-language-links {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(37, 109, 133, 0.12);
+  border-radius: var(--radius);
+  background: #fffdf7;
+}
+
+.ai-language-links small {
+  min-width: 0;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.ai-language-links a {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  color: #ffffff;
+  background: var(--green);
+  font-weight: 900;
+}
+
 @media (max-width: 420px) {
   .bottom-nav {
     width: calc(100% - 12px);
@@ -2019,5 +2201,18 @@ textarea {
   .mystic-link-deck,
   .sync-action-row {
     grid-template-columns: 1fr;
+  }
+
+  .weather-location-grid,
+  .restaurant-meta-grid,
+  .action-edit-grid,
+  .place-google-import,
+  .ai-language-links {
+    grid-template-columns: 1fr;
+  }
+
+  .action-edit-grid .asset-picker,
+  .action-edit-grid input[aria-label="行动说明"] {
+    grid-column: auto;
   }
 }
