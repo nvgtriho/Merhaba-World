@@ -2160,7 +2160,6 @@ textarea {
 
 .ai-language-links {
   display: grid;
-  grid-template-columns: 1fr auto auto;
   gap: 8px;
   align-items: center;
   padding: 10px;
@@ -2175,16 +2174,32 @@ textarea {
   line-height: 1.35;
 }
 
-.ai-language-links a {
+.ai-language-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.ai-language-links a,
+.ai-language-links button {
   min-height: 34px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 0 10px;
+  border: 0;
   border-radius: var(--radius);
   color: #ffffff;
   background: var(--green);
   font-weight: 900;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ai-language-links button {
+  color: var(--ink);
+  background: #eaf3f7;
 }
 
 @media (max-width: 420px) {

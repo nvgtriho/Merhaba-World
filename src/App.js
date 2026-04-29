@@ -24,6 +24,7 @@ import {
   X,
 } from "https://esm.sh/lucide-react@0.468.0?dev&deps=react@18.3.1";
 import { createDirectionsLink, createGoogleMapsSearchUrl, createMapLinks, normalizeGoogleMapsPlace } from "./lib/maps.js";
+import { createAssistantLinks, createClockReminderLink } from "./lib/assistantLinks.js";
 import { createIndexedDbStore } from "./lib/offlineStore.js";
 import {
   compareWeatherSources,
@@ -32,6 +33,7 @@ import {
   summarizeWeather,
   turkeyWeatherSources
 } from "./lib/weather.js";
+import { createLocationFallbackSnapshots, getDayWeatherLocations, weatherCacheKey } from "./lib/weatherLocations.js";
 import { createSupabaseAdapter } from "./lib/supabaseAdapter.js";
 import { seedTrip } from "./data/tripSeed.js";
 import { turkeyPhrases } from "./data/turkishTemplate.js";
@@ -300,78 +302,6 @@ function createWeatherStatus(selectedWeather, selectedDay) {
 
 function formatShortDate(date) {
   return typeof date === "string" ? date.slice(5).replace("-", ".") : "";
-}
-
-function weatherCacheKey(date, key) {
-  return `${date}:${key ?? "primary"}`;
-}
-
-const WEATHER_LOCATION_PRESETS = [
-  { match: /伊斯坦布尔|Istanbul|IST/i, name: "伊斯坦布尔", shortLabel: "IST", latitude: 41.0082, longitude: 28.9784 },
-  { match: /伊兹密尔|Izmir|ADB|阿德楠/i, name: "伊兹密尔", shortLabel: "ADB", latitude: 38.4237, longitude: 27.1428 },
-  { match: /塞尔丘克|Selcuk|以弗所|Ephesus/i, name: "塞尔丘克", shortLabel: "Selcuk", latitude: 37.9514, longitude: 27.3685 },
-  { match: /厄吕代尼兹|Oludeniz|费特希耶|Fethiye|Lycian|蝴蝶谷/i, name: "费特希耶", shortLabel: "Fethiye", latitude: 36.6596, longitude: 29.1263 },
-  { match: /安塔利亚|Antalya/i, name: "安塔利亚", shortLabel: "Antalya", latitude: 36.8969, longitude: 30.7133 },
-  { match: /格雷梅|Goreme|Göreme|卡帕多奇亚|Cappadocia|NAV|内夫谢希尔|Nevsehir|Uchisar|Love Valley/i, name: "格雷梅", shortLabel: "Goreme", latitude: 38.6431, longitude: 34.8289 }
-];
-
-function getDayWeatherLocations(selectedDay, dayItems, places, currentPlace) {
-  const candidates = [
-    { place: currentPlace, item: null },
-    ...dayItems.flatMap((item) => [
-      { place: resolveItemPlace(item, places), item },
-      { place: resolveDestinationPlace(item, places), item }
-    ])
-  ];
-  const seen = new Set();
-  const locations = [];
-  for (const candidate of candidates) {
-    const location = resolveWeatherLocation(candidate.place, selectedDay);
-    if (!location) continue;
-    const key = location.key ?? `${location.name}-${location.latitude}-${location.longitude}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    locations.push({ ...location, key });
-    if (locations.length >= 4) break;
-  }
-  if (!locations.length && selectedDay.weatherLocation) {
-    locations.push({ ...selectedDay.weatherLocation, key: "primary", shortLabel: selectedDay.weatherLocation.name });
-  }
-  return locations;
-}
-
-function resolveWeatherLocation(place, selectedDay) {
-  const text = `${place?.name ?? ""} ${place?.city ?? ""} ${place?.address ?? ""}`;
-  const preset = WEATHER_LOCATION_PRESETS.find((entry) => entry.match.test(text));
-  if (preset) {
-    return {
-      key: preset.shortLabel,
-      name: preset.name,
-      shortLabel: preset.shortLabel,
-      latitude: preset.latitude,
-      longitude: preset.longitude
-    };
-  }
-  if (Number.isFinite(place?.latitude) && Number.isFinite(place?.longitude)) {
-    return {
-      key: place.id ?? place.name,
-      name: place.name,
-      shortLabel: shortPlaceName(place.name),
-      latitude: place.latitude,
-      longitude: place.longitude
-    };
-  }
-  return selectedDay.weatherLocation
-    ? { ...selectedDay.weatherLocation, key: "primary", shortLabel: selectedDay.weatherLocation.name }
-    : null;
-}
-
-function createLocationFallbackSnapshots(location, baseSnapshots = []) {
-  return baseSnapshots.map((snapshot) => ({
-    ...snapshot,
-    sourceId: `${location.key}-${snapshot.sourceId}`,
-    sourceName: `${location.shortLabel ?? location.name} · ${snapshot.sourceName}`
-  }));
 }
 
 function Header({ trip, syncCloud, saveOffline, savedToast }) {
@@ -1242,9 +1172,16 @@ function getMoonPhaseInfo(date) {
 
 function PhraseLauncher({ phrases, variant = "card" }) {
   const [isPhraseOpen, setIsPhraseOpen] = useState(false);
+  const [copiedAssistantPrompt, setCopiedAssistantPrompt] = useState(false);
   const isMini = variant === "mini";
   const launcherClassName = isMini ? "home-widget-button phrase-mini-widget" : "phrase-launcher-card";
   const aiPrompt = createAiTranslatorPrompt();
+  const assistantLinks = createAssistantLinks(aiPrompt, navigator.userAgent);
+
+  async function copyAssistantPrompt() {
+    await navigator.clipboard?.writeText(aiPrompt);
+    setCopiedAssistantPrompt(true);
+  }
 
   return React.createElement(React.Fragment, null,
     React.createElement("button", { className: launcherClassName, onClick: () => setIsPhraseOpen(true) },
@@ -1267,13 +1204,22 @@ function PhraseLauncher({ phrases, variant = "card" }) {
         ),
         React.createElement("div", { className: "ai-language-links" },
           React.createElement("small", null, aiPrompt),
-          React.createElement("a", { href: "https://chatgpt.com/", target: "_blank", rel: "noreferrer" },
-            React.createElement(Sparkles, { size: 15 }),
-            React.createElement("span", null, "ChatGPT")
-          ),
-          React.createElement("a", { href: "https://gemini.google.com/app", target: "_blank", rel: "noreferrer" },
-            React.createElement(Sparkles, { size: 15 }),
-            React.createElement("span", null, "Gemini")
+          React.createElement("div", { className: "ai-language-actions" },
+            assistantLinks.map((link) => link.kind === "copy"
+              ? React.createElement("button", { key: link.id, type: "button", onClick: copyAssistantPrompt },
+                React.createElement(Copy, { size: 15 }),
+                React.createElement("span", null, copiedAssistantPrompt ? "已复制" : link.label)
+              )
+              : React.createElement("a", {
+                key: link.id,
+                href: link.href,
+                target: link.kind === "web" ? "_blank" : undefined,
+                rel: link.kind === "web" ? "noreferrer" : undefined
+              },
+                React.createElement(Sparkles, { size: 15 }),
+                React.createElement("span", null, link.label)
+              )
+            )
           )
         ),
         React.createElement("div", { className: "phrase-grid" },
@@ -1627,9 +1573,9 @@ function getDayQuickActions({ selectedDay, dayItems, trip, currentPlace }) {
 
   actions.push({
     id: "day-reminder",
-    label: "当天提醒",
+    label: "打开闹钟",
     icon: AlarmClock,
-    href: calendarLink(selectedDay, dayItems),
+    href: createClockReminderLink(selectedDay, dayItems),
     external: true
   });
 
@@ -1782,20 +1728,6 @@ function inferPlaceName(item) {
   const routeParts = item.title.split(/\s*[→-]\s*/);
   if (routeParts.length > 1) return routeParts[0].trim();
   return item.title;
-}
-
-function calendarLink(day, items) {
-  const text = encodeURIComponent(`${day.title} ${day.city} 行动提醒`);
-  const details = encodeURIComponent(items.map((item) => `${item.startTime ?? "--:--"} ${item.title}`).join("\n"));
-  const start = day.date.replaceAll("-", "");
-  const end = addDays(day.date, 1).replaceAll("-", "");
-  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&details=${details}&dates=${start}/${end}`;
-}
-
-function addDays(date, days) {
-  const value = new Date(`${date}T00:00:00Z`);
-  value.setUTCDate(value.getUTCDate() + days);
-  return value.toISOString().slice(0, 10);
 }
 
 if ("serviceWorker" in navigator) {

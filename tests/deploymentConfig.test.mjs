@@ -96,10 +96,17 @@ test("service worker precaches recognized wiki credential screenshots", async ()
   assert.equal(serviceWorker.includes("/assets/wiki/flight-tk2001.jpg"), true);
 });
 
+test("service worker precaches runtime modules imported by the app shell", async () => {
+  const serviceWorker = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
+
+  assert.equal(serviceWorker.includes("/src/lib/assistantLinks.js"), true);
+  assert.equal(serviceWorker.includes("/src/lib/weatherLocations.js"), true);
+});
+
 test("service worker bumps cache version and refreshes app shell resources from the network", async () => {
   const serviceWorker = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
 
-  assert.match(serviceWorker, /CACHE_NAME = "merhaba-world-v2"/);
+  assert.match(serviceWorker, /CACHE_NAME = "merhaba-world-v3"/);
   assert.match(serviceWorker, /NETWORK_FIRST_PATHS/);
   assert.match(serviceWorker, /"\/src\/App\.js"/);
   assert.match(serviceWorker, /"\/src\/styles\.css"/);

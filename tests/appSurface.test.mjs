@@ -299,12 +299,18 @@ test("lets action edits update timing, places, addresses, and credential binding
 test("adds ChatGPT and Gemini language helpers", async () => {
   const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  const assistantLinks = await readFile(new URL("../src/lib/assistantLinks.js", import.meta.url), "utf8");
 
   assert.equal(source.includes("ai-language-links"), true);
-  assert.equal(source.includes("ChatGPT"), true);
-  assert.equal(source.includes("Gemini"), true);
+  assert.equal(source.includes("ai-language-actions"), true);
+  assert.equal(assistantLinks.includes("ChatGPT"), true);
+  assert.equal(assistantLinks.includes("Gemini"), true);
+  assert.equal(assistantLinks.includes('kind: "web"'), false);
+  assert.equal(assistantLinks.includes("chatgpt.com"), false);
+  assert.equal(assistantLinks.includes("browser_fallback_url"), false);
   assert.equal(source.includes("createAiTranslatorPrompt"), true);
   assert.equal(styles.includes(".ai-language-links"), true);
+  assert.equal(styles.includes(".ai-language-actions"), true);
 });
 
 test("loads external weather and auto-selects the nearest trip date", async () => {

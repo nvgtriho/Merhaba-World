@@ -1,4 +1,4 @@
-const CACHE_NAME = "merhaba-world-v2";
+const CACHE_NAME = "merhaba-world-v3";
 const LOCAL_ASSETS = [
   "/",
   "/index.html",
@@ -6,10 +6,12 @@ const LOCAL_ASSETS = [
   "/src/App.js",
   "/src/styles.css",
   "/src/lib/markdownImporter.js",
+  "/src/lib/assistantLinks.js",
   "/src/lib/maps.js",
   "/src/lib/offlineStore.js",
   "/src/lib/supabaseAdapter.js",
   "/src/lib/weather.js",
+  "/src/lib/weatherLocations.js",
   "/src/data/tripSeed.js",
   "/src/data/turkishTemplate.js",
   "/assets/icon.svg",
