@@ -1,42 +1,90 @@
-import React, { useMemo, useState } from "https://esm.sh/react@18.3.1?dev";
+import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1?dev";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client?dev&deps=react@18.3.1";
 import {
   AlarmClock,
   CalendarDays,
+  Camera,
   CloudSun,
+  Copy,
   ExternalLink,
   FileText,
   Languages,
+  Link2,
   MapPin,
   Navigation,
   PencilLine,
   Phone,
   Plus,
-  Route,
   Save,
   SearchCheck,
+  Sparkles,
   Trash2,
+  Utensils,
   Users,
+  X,
 } from "https://esm.sh/lucide-react@0.468.0?dev&deps=react@18.3.1";
-import { createMapLinks } from "./lib/maps.js";
+import { createDirectionsLink, createMapLinks } from "./lib/maps.js";
 import { createIndexedDbStore } from "./lib/offlineStore.js";
-import { compareWeatherSources, turkeyWeatherSources } from "./lib/weather.js";
+import {
+  compareWeatherSources,
+  fetchOpenMeteoForecast,
+  getNearestTripDate,
+  summarizeWeather,
+  turkeyWeatherSources
+} from "./lib/weather.js";
 import { createSupabaseAdapter } from "./lib/supabaseAdapter.js";
 import { seedTrip } from "./data/tripSeed.js";
 import { turkeyPhrases } from "./data/turkishTemplate.js";
 
 const store = createIndexedDbStore();
 const supabaseAdapter = createSupabaseAdapter();
+const WEATHER_CHART_WIDTH = 260;
+const WEATHER_CHART_HEIGHT = 92;
+const WEATHER_CHART_PADDING_X = 14;
+const SHORT_PLACE_LABELS = new Map([
+  ["伊斯坦布尔机场 IST", "IST"],
+  ["伊兹密尔 阿德楠曼德列斯机场 ADB", "ADB"],
+  ["内夫谢希尔 卡帕多奇亚机场 NAV", "NAV"],
+  ["Saint John Hotel", "Saint John"],
+  ["Salonika Suites", "Salonika"],
+  ["King Apart Goreme", "King Apart"],
+  ["Oludeniz Beach", "Oludeniz"],
+  ["Lycian Way Start Point", "Lycian Way"],
+  ["Göreme Otogarı", "Göreme 车站"],
+  ["安塔利亚 Otogar", "安塔利亚车站"],
+  ["Göreme Sunset View Point", "日落点"]
+]);
 
 function App() {
   const [trip, setTrip] = useState(seedTrip);
-  const [selectedDate, setSelectedDate] = useState(seedTrip.days[1].date);
+  const [selectedDate, setSelectedDate] = useState(() => getNearestTripDate(seedTrip.days, new Date()));
   const [activeView, setActiveView] = useState("today");
   const [savedToast, setSavedToast] = useState("");
+  const [externalWeather, setExternalWeather] = useState({});
+  const [syncEditor, setSyncEditor] = useState(() => {
+    if (typeof localStorage === "undefined") return seedTrip.members[0]?.name ?? "旅伴";
+    return localStorage.getItem("short-trip-sync-editor") ?? seedTrip.members[0]?.name ?? "旅伴";
+  });
+  const [syncState, setSyncState] = useState({
+    status: supabaseAdapter.mode === "supabase" ? "ready" : "demo",
+    version: 0,
+    dirty: false,
+    updatedAt: "",
+    updatedBy: "",
+    message: supabaseAdapter.mode === "supabase" ? "可推送云端" : "本地演示云端"
+  });
   const selectedDay = trip.days.find((day) => day.date === selectedDate) ?? trip.days[0];
   const dayItems = trip.items.filter((item) => item.date === selectedDay.date);
   const currentPlace = trip.places.find((place) => selectedDay.city.includes(place.city)) ?? trip.places[0];
-  const weatherReport = compareWeatherSources(selectedDay.weatherSnapshots);
+  const selectedWeather = externalWeather[selectedDay.date];
+  const selectedWeatherSnapshots = selectedWeather?.snapshot
+    ? [selectedWeather.snapshot, ...selectedDay.weatherSnapshots]
+    : selectedDay.weatherSnapshots;
+  const selectedHourlyForecast = selectedWeather?.hourlyForecast?.length
+    ? selectedWeather.hourlyForecast
+    : selectedDay.hourlyForecast;
+  const weatherStatus = createWeatherStatus(selectedWeather, selectedDay);
+  const weatherReport = compareWeatherSources(selectedWeatherSnapshots);
 
   const placesWithLinks = useMemo(
     () =>
@@ -47,6 +95,40 @@ function App() {
     [trip.places]
   );
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedDay.weatherLocation) {
+      setExternalWeather((current) => ({
+        ...current,
+        [selectedDay.date]: { source: "fallback", sourceLabel: "本地兜底" }
+      }));
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    fetchOpenMeteoForecast(selectedDay.weatherLocation, selectedDay.date)
+      .then((weather) => {
+        if (cancelled) return;
+        setExternalWeather((current) => ({
+          ...current,
+          [selectedDay.date]: weather ?? { source: "fallback", sourceLabel: "本地兜底" }
+        }));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setExternalWeather((current) => ({
+          ...current,
+          [selectedDay.date]: { source: "fallback", sourceLabel: "本地兜底" }
+        }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDay.date, selectedDay.weatherLocation]);
+
   async function saveOffline() {
     await store.put("trips", trip);
     await Promise.all(trip.items.map((item) => store.put("itineraryItems", { ...item, tripId: trip.id })));
@@ -54,8 +136,55 @@ function App() {
     setSavedToast("已保存到本地离线缓存");
   }
 
-  async function syncCloud() {
-    const result = await supabaseAdapter.syncTrip(trip);
+  function updateTrip(nextTrip) {
+    setTrip((current) => typeof nextTrip === "function" ? nextTrip(current) : nextTrip);
+    setSyncState((current) => ({ ...current, dirty: true, status: current.status === "demo" ? "demo" : "dirty", message: "有本地修改未推送" }));
+  }
+
+  async function pushCloud() {
+    if (typeof localStorage !== "undefined") localStorage.setItem("short-trip-sync-editor", syncEditor);
+    setSyncState((current) => ({ ...current, status: "syncing", message: "正在推送云端" }));
+    const result = await supabaseAdapter.pushTrip(trip, {
+      baseVersion: syncState.version,
+      updatedBy: syncEditor.trim() || "旅伴"
+    });
+    if (result.ok) {
+      setSyncState({
+        status: supabaseAdapter.mode === "supabase" ? "synced" : "demo",
+        version: result.version,
+        dirty: false,
+        updatedAt: result.updatedAt,
+        updatedBy: result.updatedBy,
+        message: result.message
+      });
+    } else {
+      setSyncState((current) => ({
+        ...current,
+        status: result.conflict ? "conflict" : "error",
+        message: result.message,
+        version: result.remoteVersion ?? current.version
+      }));
+    }
+    setSavedToast(result.message);
+  }
+
+  async function pullCloud() {
+    if (typeof localStorage !== "undefined") localStorage.setItem("short-trip-sync-editor", syncEditor);
+    setSyncState((current) => ({ ...current, status: "syncing", message: "正在拉取云端" }));
+    const result = await supabaseAdapter.pullTrip(trip.id);
+    if (result.ok) {
+      setTrip(result.trip);
+      setSyncState({
+        status: supabaseAdapter.mode === "supabase" ? "synced" : "demo",
+        version: result.version,
+        dirty: false,
+        updatedAt: result.updatedAt,
+        updatedBy: result.updatedBy,
+        message: result.message
+      });
+    } else {
+      setSyncState((current) => ({ ...current, status: result.missing ? "empty" : "error", message: result.message }));
+    }
     setSavedToast(result.message);
   }
 
@@ -63,7 +192,7 @@ function App() {
     React.Fragment,
     null,
     React.createElement("main", { className: "app-shell" },
-      React.createElement(Header, { trip, syncCloud, saveOffline, savedToast }),
+      React.createElement(Header, { trip, syncCloud: pushCloud, saveOffline, savedToast }),
       React.createElement("section", { className: "phone-stage" },
         React.createElement("section", { className: "active-view", "aria-live": "polite" },
           activeView === "today" && React.createElement(React.Fragment, null,
@@ -71,33 +200,76 @@ function App() {
               selectedDay,
               dayItems,
               currentPlace,
+              trip,
               weatherReport,
               setSelectedDate,
               days: trip.days,
               setActiveView
             }),
-            React.createElement(KeyTrafficPanel, { dayItems, setActiveView })
-          ),
-          activeView === "itinerary" && React.createElement(React.Fragment, null,
-            React.createElement(PageHeader, { kicker: "ITINERARY", title: "行程安排", count: `${dayItems.length} 条` }),
-            React.createElement(ItineraryEditor, { trip, selectedDay, dayItems, setTrip, places: placesWithLinks, setActiveView })
+            React.createElement(HomeMiniWidgets, {
+              selectedDay,
+              weatherReport,
+              weatherSnapshots: selectedWeatherSnapshots,
+              hourlyForecast: selectedHourlyForecast,
+              weatherStatus,
+              setActiveView,
+              phrases: turkeyPhrases
+            }),
+            React.createElement(DayActionPanel, { selectedDay, dayItems, places: placesWithLinks, trip, setTrip: updateTrip, setActiveView })
           ),
           activeView === "places" && React.createElement(React.Fragment, null,
-            React.createElement(PageHeader, { kicker: "PLACES", title: "酒店与地点", count: `${placesWithLinks.length} 条` }),
-            React.createElement(PlaceDirectory, { places: placesWithLinks, links: trip.links }),
-            React.createElement(WeatherPanel, { selectedDay, currentPlace })
+            React.createElement(PageHeader, { kicker: "PLACES", title: "当天地点", count: `${dayItems.length} 项` }),
+            React.createElement(DayPlaceDirectory, { selectedDay, dayItems, places: placesWithLinks, links: trip.links, days: trip.days, trip, setTrip: updateTrip, setSelectedDate }),
+          ),
+          activeView === "weather" && React.createElement(React.Fragment, null,
+            React.createElement(PageHeader, { kicker: "WEATHER", title: "天气复核", count: selectedDay.title }),
+            React.createElement(WeatherPanel, {
+              selectedDay,
+              currentPlace,
+              weatherSnapshots: selectedWeatherSnapshots,
+              hourlyForecast: selectedHourlyForecast,
+              weatherStatus,
+              trip,
+              setTrip: updateTrip
+            })
+          ),
+          activeView === "food" && React.createElement(React.Fragment, null,
+            React.createElement(PageHeader, { kicker: "FOOD", title: "当地美食", count: selectedDay.title }),
+            React.createElement(FoodPanel, { trip, setTrip: updateTrip, selectedDay })
           ),
           activeView === "docs" && React.createElement(React.Fragment, null,
             React.createElement(PageHeader, { kicker: "DOCS", title: "凭证与常用", count: "离线可用" }),
-            React.createElement(CollectionPanel, { trip, setTrip }),
-            React.createElement(PhrasePanel, { phrases: turkeyPhrases }),
-            React.createElement(CollaborationPanel, { trip, syncCloud })
+            React.createElement(CollectionPanel, { trip, setTrip: updateTrip, selectedDay }),
+            React.createElement(PhraseLauncher, { phrases: turkeyPhrases }),
+            React.createElement(CollaborationPanel, { trip, syncState, syncEditor, setSyncEditor, pushCloud, pullCloud })
+          ),
+          activeView === "mystic" && React.createElement(React.Fragment, null,
+            React.createElement(PageHeader, { kicker: "LUCK", title: "玄学提示", count: selectedDay.title }),
+            React.createElement(MysticPanel, { selectedDay, trip, setTrip: updateTrip })
           )
         )
       )
     ),
     React.createElement(BottomNav, { activeView, setActiveView })
   );
+}
+
+function createWeatherStatus(selectedWeather, selectedDay) {
+  if (selectedWeather?.source === "open-meteo") {
+    const isMatchedDay = selectedWeather.matchedDate === selectedDay.date;
+    return {
+      tone: "live",
+      label: isMatchedDay ? (selectedWeather.sourceLabel ?? "Open-Meteo 实时") : `Open-Meteo 最近日 ${formatShortDate(selectedWeather.matchedDate)}`
+    };
+  }
+  if (selectedWeather?.source === "fallback") {
+    return { tone: "fallback", label: "本地兜底" };
+  }
+  return { tone: "loading", label: "读取中" };
+}
+
+function formatShortDate(date) {
+  return typeof date === "string" ? date.slice(5).replace("-", ".") : "";
 }
 
 function Header({ trip, syncCloud, saveOffline, savedToast }) {
@@ -140,7 +312,8 @@ function BottomNav({ activeView, setActiveView }) {
 
 const viewItems = [
   { id: "today", shortLabel: "今天", icon: CalendarDays },
-  { id: "itinerary", shortLabel: "行程", icon: PencilLine },
+  { id: "weather", shortLabel: "天气", icon: CloudSun },
+  { id: "food", shortLabel: "美食", icon: Utensils },
   { id: "places", shortLabel: "地点", icon: MapPin },
   { id: "docs", shortLabel: "凭证", icon: FileText }
 ];
@@ -165,6 +338,14 @@ const dayHeroCopy = {
   "2026-05-04": {
     title: "抵达格雷梅\n看卡帕多奇亚",
     copy: "今天从夜巴恢复体力，确认酒店、热气球天气和格雷梅周边导航。"
+  },
+  "2026-05-05": {
+    title: "卡帕多奇亚\n机动日",
+    copy: "今天留给热气球、红线绿线或小镇休整；按天气和体力决定当天节奏。"
+  },
+  "2026-05-06": {
+    title: "返程转场\n飞回伊斯坦布尔",
+    copy: "今天重点是 NAV 到 IST 的航班、机场交通和后续衔接；提前确认行李和登机口。"
   }
 };
 
@@ -181,28 +362,25 @@ function PageHeader({ kicker, title, count }) {
 function TodayPanel(props) {
   const {
     selectedDay,
+    dayItems,
     currentPlace,
-    weatherReport,
+    trip,
     setSelectedDate,
     days,
     setActiveView
   } = props;
-  const mapLinks = createMapLinks(currentPlace);
+  const dayQuickActions = getDayQuickActions({ selectedDay, dayItems, trip, currentPlace });
   const hero = dayHeroCopy[selectedDay.date] ?? {
     title: selectedDay.city,
     copy: "把今天最关键的交通、住宿、天气和凭证入口集中在这里。"
   };
 
   return React.createElement(React.Fragment, null,
-    React.createElement("article", { className: "panel today-panel" },
+    React.createElement("article", { className: "panel today-panel", style: backgroundImageStyle(selectedDay.heroImageUrl, "--hero-image") },
       React.createElement("div", { className: "panel-title-row" },
         React.createElement("div", null,
           React.createElement("span", { className: "date-pill" }, `${selectedDay.title} · 今日`),
           React.createElement("h2", null, hero.title)
-        ),
-        React.createElement("button", { className: "weather-chip", onClick: () => setActiveView("places") },
-          React.createElement("strong", null, weatherReport.status === "divergent" ? "复核天气" : "接入天气"),
-          React.createElement("span", null, weatherReport.status === "divergent" ? "有分歧" : "已校验")
         )
       ),
       React.createElement("p", { className: "hero-copy" }, hero.copy),
@@ -211,56 +389,142 @@ function TodayPanel(props) {
           React.createElement("button", {
             key: day.id,
             className: day.date === selectedDay.date ? "day-chip active" : "day-chip",
+            style: backgroundImageStyle(day.heroImageUrl, "--day-image"),
             onClick: () => setSelectedDate(day.date)
           }, day.title)
         )
       )
     ),
-    React.createElement("div", { className: "quick-actions" },
-      React.createElement("a", { href: mapLinks.google, target: "_blank", rel: "noreferrer", className: "action-tile" },
-        React.createElement(Navigation, { size: 18 }),
-        React.createElement("span", null, "导航")
-      ),
-      React.createElement("button", { className: "action-tile", onClick: () => setActiveView("docs") },
-        React.createElement(Phone, { size: 18 }),
-        React.createElement("span", null, "酒店电话")
-      ),
-      React.createElement("button", { className: "action-tile", onClick: () => setActiveView("docs") },
-        React.createElement(FileText, { size: 18 }),
-        React.createElement("span", null, "确认单")
-      ),
-      React.createElement("button", { className: "action-tile", onClick: () => setActiveView("itinerary") },
-        React.createElement(Route, { size: 18 }),
-        React.createElement("span", null, "交通")
-      )
+    React.createElement("div", { className: "quick-actions utility-rail", "aria-label": "今日工具" },
+      dayQuickActions.map((action) => {
+        const content = React.createElement(React.Fragment, null,
+          React.createElement(action.icon, { size: 18 }),
+          React.createElement("span", { className: "action-tooltip" }, action.label)
+        );
+        if (action.href) {
+          return React.createElement("a", {
+            key: action.id,
+            href: action.href,
+            target: action.external ? "_blank" : undefined,
+            rel: action.external ? "noreferrer" : undefined,
+            "aria-label": action.label,
+            title: action.label,
+            className: "action-tile"
+          }, content);
+        }
+        return React.createElement("button", {
+          key: action.id,
+          className: "action-tile",
+          "aria-label": action.label,
+          title: action.label,
+          onClick: () => setActiveView(action.view)
+        }, content);
+      })
     )
   );
 }
 
-function KeyTrafficPanel({ dayItems, setActiveView }) {
-  const transportItems = dayItems.filter((item) => item.type === "transport");
-  const visibleItems = transportItems.length ? transportItems : dayItems.slice(0, 2);
+function HomeMiniWidgets({ selectedDay, weatherReport, weatherSnapshots, hourlyForecast, weatherStatus, setActiveView, phrases }) {
+  const weatherSummary = summarizeWeather(weatherSnapshots ?? selectedDay.weatherSnapshots);
+  const nextWeatherPoint = hourlyForecast?.[0];
+  const weatherLine = `${weatherSummary.lowC}°-${weatherSummary.highC}° · 雨${weatherSummary.precipitationChance}%`;
+  const windLine = `${weatherStatus?.label ?? "本地兜底"} · 风 ${nextWeatherPoint?.windKmh ?? weatherSummary.windKmh}km/h · ${weatherReport.status === "divergent" ? "需复核" : "已校验"}`;
+  const mystic = selectedDay.mystic;
+
+  return React.createElement("section", { className: "home-mini-widgets", "aria-label": "今日精巧提示" },
+    React.createElement("button", { className: "home-widget-button weather-mini-widget", onClick: () => setActiveView("weather") },
+      React.createElement(CloudSun, { size: 18 }),
+      React.createElement("span", null, "天气"),
+      React.createElement("strong", null, weatherLine),
+      React.createElement("small", null, windLine)
+    ),
+    mystic && React.createElement("button", { className: "home-widget-button mystic-mini-widget", onClick: () => setActiveView("mystic") },
+      React.createElement(Sparkles, { size: 18 }),
+      React.createElement("span", null, "玄学"),
+      React.createElement("strong", null, mystic.summary),
+      React.createElement("small", null, `${mystic.luckyColor ?? "今日色"} · ${mystic.focus ?? selectedDay.city}`)
+    ),
+    React.createElement(PhraseLauncher, { phrases, variant: "mini" })
+  );
+}
+
+function DayActionPanel({ selectedDay, dayItems, places, trip, setTrip, setActiveView }) {
+  const [draft, setDraft] = useState({ title: "", note: "" });
+  const visibleItems = dayItems.length ? dayItems : [{
+    id: `empty-${selectedDay.date}`,
+    date: selectedDay.date,
+    startTime: null,
+    type: "note",
+    title: "当天行程待补充",
+    notes: ["可以先看地点、天气和凭证，再补充具体行动。"]
+  }];
+
+  function updateItem(itemId, patch) {
+    setTrip({
+      ...trip,
+      items: trip.items.map((item) => item.id === itemId ? { ...item, ...patch } : item)
+    });
+  }
+
+  function updateItemNote(item, note) {
+    updateItem(item.id, { notes: [note, ...(item.notes ?? []).slice(1)] });
+  }
+
+  function removeItem(itemId) {
+    setTrip({ ...trip, items: trip.items.filter((item) => item.id !== itemId) });
+  }
+
+  function addItem() {
+    if (!draft.title.trim()) return;
+    setTrip({
+      ...trip,
+      items: [
+        ...trip.items,
+        {
+          id: `item-${Date.now()}`,
+          date: selectedDay.date,
+          startTime: null,
+          endTime: null,
+          type: "note",
+          title: draft.title.trim(),
+          notes: draft.note.trim() ? [draft.note.trim()] : []
+        }
+      ]
+    });
+    setDraft({ title: "", note: "" });
+  }
 
   return React.createElement("article", { className: "panel traffic-panel" },
     React.createElement("div", { className: "panel-title-row" },
-      React.createElement("h3", null, "关键交通"),
-      React.createElement("button", { className: "small-filter", onClick: () => setActiveView("itinerary") }, "全部")
+      React.createElement("h3", null, "今日行动"),
+      React.createElement("span", { className: "small-filter" }, `${selectedDay.title} · ${visibleItems.length}项`)
     ),
-    React.createElement("div", { className: "traffic-stack" },
-      visibleItems.slice(0, 3).map((item, index) =>
-        React.createElement("div", { key: item.id, className: index === 0 ? "traffic-card primary" : "traffic-card amber" },
-          React.createElement("aside", null,
-            React.createElement("strong", null, item.startTime ?? "--:--"),
-            React.createElement("span", null, item.type === "transport" ? "航班" : "落地后")
-          ),
-          React.createElement("div", null,
-            React.createElement("p", { className: "traffic-region" }, "伊斯坦布尔/伊兹密尔"),
-            React.createElement("h3", null, item.title),
-            React.createElement("p", null, item.notes[0] ?? "按实际情况确认后执行。"),
-            React.createElement("div", { className: "traffic-buttons" },
-              React.createElement("button", { onClick: () => setActiveView("places") }, "导航出发点"),
-              React.createElement("button", { onClick: () => setActiveView("docs") }, "看凭证")
-            )
+    React.createElement("div", { className: "day-action-stack" },
+      visibleItems.map((item) =>
+        React.createElement(ItineraryActionCard, {
+          item,
+          key: item.id,
+          places,
+          assets: trip.assets ?? [],
+          setActiveView
+        })
+      )
+    ),
+    React.createElement(EditDrawer, { label: "编辑行动" },
+      React.createElement("div", { className: "compact-form two" },
+        React.createElement("input", { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: "新增行动标题" }),
+        React.createElement("input", { value: draft.note, onChange: (event) => setDraft({ ...draft, note: event.target.value }), placeholder: "一句有用说明" }),
+        React.createElement("button", { className: "primary-button", onClick: addItem },
+          React.createElement(Plus, { size: 18 }),
+          React.createElement("span", null, "添加行动")
+        )
+      ),
+      React.createElement("div", { className: "edit-list" },
+        dayItems.map((item) =>
+          React.createElement("div", { key: `edit-${item.id}`, className: "edit-row" },
+            React.createElement("input", { value: item.title, onChange: (event) => updateItem(item.id, { title: event.target.value }), "aria-label": "行动标题" }),
+            React.createElement("input", { value: item.notes?.[0] ?? "", onChange: (event) => updateItemNote(item, event.target.value), "aria-label": "行动说明" }),
+            React.createElement("button", { onClick: () => removeItem(item.id), title: "删除行动" }, React.createElement(Trash2, { size: 15 }))
           )
         )
       )
@@ -268,9 +532,45 @@ function KeyTrafficPanel({ dayItems, setActiveView }) {
   );
 }
 
-function WeatherPanel({ selectedDay, currentPlace }) {
+function WeatherPanel({ selectedDay, currentPlace, weatherSnapshots, hourlyForecast, weatherStatus, trip, setTrip }) {
+  const [draft, setDraft] = useState({ sourceName: "", highC: "", lowC: "", precipitationChance: "", windKmh: "" });
   const sources = turkeyWeatherSources(currentPlace.city || currentPlace.name);
-  const report = compareWeatherSources(selectedDay.weatherSnapshots);
+  const report = compareWeatherSources(weatherSnapshots ?? selectedDay.weatherSnapshots);
+  const summary = summarizeWeather(weatherSnapshots ?? selectedDay.weatherSnapshots);
+  const visual = createWeatherVisual(summary, report);
+
+  function updateSelectedDayWeather(nextSnapshots) {
+    setTrip({
+      ...trip,
+      days: trip.days.map((day) => day.date === selectedDay.date ? { ...day, weatherSnapshots: nextSnapshots } : day)
+    });
+  }
+
+  function updateWeatherSnapshot(sourceId, patch) {
+    updateSelectedDayWeather((selectedDay.weatherSnapshots ?? []).map((snapshot) =>
+      snapshot.sourceId === sourceId ? { ...snapshot, ...patch } : snapshot
+    ));
+  }
+
+  function removeWeatherSnapshot(sourceId) {
+    updateSelectedDayWeather((selectedDay.weatherSnapshots ?? []).filter((snapshot) => snapshot.sourceId !== sourceId));
+  }
+
+  function addWeatherSnapshot() {
+    if (!draft.sourceName.trim()) return;
+    updateSelectedDayWeather([
+      ...(selectedDay.weatherSnapshots ?? []),
+      {
+        sourceId: `custom-${Date.now()}`,
+        sourceName: draft.sourceName.trim(),
+        highC: Number(draft.highC) || 0,
+        lowC: Number(draft.lowC) || 0,
+        precipitationChance: Number(draft.precipitationChance) || 0,
+        windKmh: Number(draft.windKmh) || 0
+      }
+    ]);
+    setDraft({ sourceName: "", highC: "", lowC: "", precipitationChance: "", windKmh: "" });
+  }
 
   return React.createElement("article", { className: "panel weather-panel" },
     React.createElement("div", { className: "panel-title-row" },
@@ -280,17 +580,47 @@ function WeatherPanel({ selectedDay, currentPlace }) {
       ),
       React.createElement(SearchCheck, { size: 22 })
     ),
+    React.createElement("div", { className: `weather-story-card ${visual.tone}` },
+      React.createElement("div", null,
+        React.createElement("span", { className: "weather-kicker" }, `${selectedDay.title} · ${currentPlace.city || currentPlace.name}`),
+        React.createElement("span", { className: `weather-live-status ${weatherStatus?.tone ?? "fallback"}` }, weatherStatus?.label ?? "本地兜底"),
+        React.createElement("strong", null, visual.title),
+        React.createElement("p", null, visual.copy)
+      ),
+      React.createElement("div", { className: "weather-numbers" },
+        React.createElement("span", null, `${summary.highC}°`),
+        React.createElement("small", null, `低 ${summary.lowC}° · 风 ${summary.windKmh} km/h`)
+      )
+    ),
+    React.createElement("div", { className: "weather-meter" },
+      React.createElement("div", null,
+        React.createElement("span", null, "降雨"),
+        React.createElement("strong", null, `${summary.precipitationChance ?? 0}%`),
+        React.createElement("i", { style: { width: `${Math.min(summary.precipitationChance ?? 0, 100)}%` } })
+      ),
+      React.createElement("div", null,
+        React.createElement("span", null, "风感"),
+        React.createElement("strong", null, `${summary.windKmh ?? 0}km/h`),
+        React.createElement("i", { style: { width: `${Math.min(((summary.windKmh ?? 0) / 60) * 100, 100)}%` } })
+      ),
+      React.createElement("div", null,
+        React.createElement("span", null, "来源"),
+        React.createElement("strong", null, `${report.sourceCount} 个`),
+        React.createElement("i", { style: { width: `${Math.min(report.sourceCount * 30, 100)}%` } })
+      )
+    ),
+    React.createElement(HourlyWeatherChart, { forecast: hourlyForecast ?? selectedDay.hourlyForecast ?? [], summary }),
     React.createElement("div", { className: "source-list" },
       sources.map((source) =>
         React.createElement("a", { key: source.id, href: source.url, target: "_blank", rel: "noreferrer", className: "source-card" },
           React.createElement("strong", null, source.name),
-          React.createElement("span", null, source.label),
+          React.createElement("span", null, `${source.label} · 当前唯一保留外链`),
           React.createElement(ExternalLink, { size: 15 })
         )
       )
     ),
     React.createElement("div", { className: "weather-grid" },
-      selectedDay.weatherSnapshots.map((snapshot) =>
+      (weatherSnapshots ?? selectedDay.weatherSnapshots).map((snapshot) =>
         React.createElement("div", { key: snapshot.sourceId, className: "weather-source" },
           React.createElement("span", null, snapshot.sourceName),
           React.createElement("strong", null, `${snapshot.highC}° / ${snapshot.lowC}°`),
@@ -300,180 +630,606 @@ function WeatherPanel({ selectedDay, currentPlace }) {
     ),
     React.createElement("p", { className: "weather-note" },
       report.status === "divergent"
-        ? `触发差异：${report.reasons.join("、")}。出发前点开 MGM 官方源确认。`
-        : "多源趋势一致，可按当前计划执行。"
-    )
-  );
-}
-
-function ItineraryEditor({ trip, selectedDay, dayItems, setTrip, places, setActiveView }) {
-  const [draft, setDraft] = useState({ startTime: "", title: "", type: "activity", notes: "" });
-
-  function addItem() {
-    if (!draft.title.trim()) return;
-    const next = {
-      id: `item-${Date.now()}`,
-      date: selectedDay.date,
-      startTime: draft.startTime || null,
-      endTime: null,
-      type: draft.type,
-      title: draft.title.trim(),
-      notes: draft.notes ? draft.notes.split("\n").filter(Boolean) : [draft.title.trim()],
-      source: "manual"
-    };
-    setTrip({ ...trip, items: [...trip.items, next] });
-    setDraft({ startTime: "", title: "", type: "activity", notes: "" });
-  }
-
-  function removeItem(id) {
-    setTrip({ ...trip, items: trip.items.filter((item) => item.id !== id) });
-  }
-
-  return React.createElement("article", { className: "panel editor-panel" },
-    React.createElement(SectionHeading, { icon: PencilLine, title: "行程编辑", subtitle: `${selectedDay.title} 可直接补充` }),
-    React.createElement("div", { className: "compact-form" },
-      React.createElement("input", { value: draft.startTime, onChange: (event) => setDraft({ ...draft, startTime: event.target.value }), placeholder: "时间 08:30" }),
-      React.createElement("select", { value: draft.type, onChange: (event) => setDraft({ ...draft, type: event.target.value }) },
-        React.createElement("option", { value: "activity" }, "活动"),
-        React.createElement("option", { value: "transport" }, "交通"),
-        React.createElement("option", { value: "lodging" }, "住宿"),
-        React.createElement("option", { value: "food" }, "点餐")
-      ),
-      React.createElement("input", { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: "标题" }),
-      React.createElement("textarea", { value: draft.notes, onChange: (event) => setDraft({ ...draft, notes: event.target.value }), placeholder: "备注，可多行" }),
-      React.createElement("button", { className: "primary-button", onClick: addItem },
-        React.createElement(Plus, { size: 18 }),
-        React.createElement("span", null, "加入当天")
-      )
+        ? `触发差异：${report.reasons.join("、")}。出发前点开 Open-Meteo 复核。`
+        : "当前趋势平稳，可按计划执行。"
     ),
-    React.createElement("div", { className: "editable-list" },
-      dayItems.map((item) =>
-        React.createElement(ItineraryActionCard, {
-          item,
-          key: item.id,
-          places,
-          setActiveView,
-          onRemove: () => removeItem(item.id)
-        })
+    React.createElement(EditDrawer, { label: "编辑天气" },
+      React.createElement("div", { className: "compact-form two" },
+        React.createElement("input", { value: draft.sourceName, onChange: (event) => setDraft({ ...draft, sourceName: event.target.value }), placeholder: "来源名称" }),
+        React.createElement("input", { value: draft.highC, onChange: (event) => setDraft({ ...draft, highC: event.target.value }), placeholder: "最高温" }),
+        React.createElement("input", { value: draft.lowC, onChange: (event) => setDraft({ ...draft, lowC: event.target.value }), placeholder: "最低温" }),
+        React.createElement("input", { value: draft.precipitationChance, onChange: (event) => setDraft({ ...draft, precipitationChance: event.target.value }), placeholder: "降雨%" }),
+        React.createElement("input", { value: draft.windKmh, onChange: (event) => setDraft({ ...draft, windKmh: event.target.value }), placeholder: "风 km/h" }),
+        React.createElement("button", { className: "primary-button", onClick: addWeatherSnapshot },
+          React.createElement(Plus, { size: 18 }),
+          React.createElement("span", null, "添加来源")
+        )
+      ),
+      React.createElement("div", { className: "edit-list" },
+        (selectedDay.weatherSnapshots ?? []).map((snapshot) =>
+          React.createElement("div", { key: `edit-${snapshot.sourceId}`, className: "edit-row" },
+            React.createElement("input", { value: snapshot.sourceName, onChange: (event) => updateWeatherSnapshot(snapshot.sourceId, { sourceName: event.target.value }), "aria-label": "天气来源" }),
+            React.createElement("input", { value: `${snapshot.highC}/${snapshot.lowC} 雨${snapshot.precipitationChance}% 风${snapshot.windKmh}`, readOnly: true, "aria-label": "天气摘要" }),
+            React.createElement("button", { onClick: () => removeWeatherSnapshot(snapshot.sourceId), title: "删除天气来源" }, React.createElement(Trash2, { size: 15 }))
+          )
+        )
       )
     )
   );
 }
 
-function ItineraryActionCard({ item, places, setActiveView, onRemove }) {
+function HourlyWeatherChart({ forecast, summary }) {
+  const points = forecast.length ? forecast : createFallbackHourlyForecast(summary);
+  const temps = points.map((point) => point.tempC);
+  const min = Math.min(...temps);
+  const max = Math.max(...temps);
+  const range = Math.max(max - min, 1);
+  const chartTop = 18;
+  const chartBottom = WEATHER_CHART_HEIGHT - 14;
+  const chartWidth = WEATHER_CHART_WIDTH - WEATHER_CHART_PADDING_X * 2;
+  const chartPoints = points.map((point, index) => {
+    const x = points.length === 1
+      ? WEATHER_CHART_WIDTH / 2
+      : WEATHER_CHART_PADDING_X + (index / (points.length - 1)) * chartWidth;
+    const y = chartBottom - ((point.tempC - min) / range) * (chartBottom - chartTop);
+    return { point, x, y };
+  });
+  const linePoints = chartPoints.map(({ x, y }) => `${x},${y}`).join(" ");
+
+  return React.createElement("section", { className: "weather-timeline-chart wide-weather-chart", "aria-label": "小时级天气时序图" },
+    React.createElement("div", { className: "chart-heading" },
+      React.createElement("strong", null, "小时趋势"),
+      React.createElement("span", null, "温度 / 降雨 / 风")
+    ),
+    React.createElement("div", { className: "hourly-scroller" },
+      React.createElement("div", { className: "hourly-track" },
+        React.createElement("svg", { viewBox: `0 0 ${WEATHER_CHART_WIDTH} ${WEATHER_CHART_HEIGHT}`, role: "img", "aria-label": "小时温度曲线" },
+          React.createElement("polyline", { points: linePoints, fill: "none", stroke: "currentColor", strokeWidth: 3, strokeLinecap: "round", strokeLinejoin: "round" }),
+          chartPoints.map(({ point, x, y }) =>
+            React.createElement("circle", { key: `${point.time}-dot`, cx: x, cy: y, r: 2.6 })
+          )
+        ),
+        React.createElement("div", { className: "hourly-row", style: { gridTemplateColumns: `repeat(${points.length}, minmax(64px, 1fr))` } },
+          points.map((point) =>
+            React.createElement("div", { key: point.time },
+              React.createElement("span", null, point.time),
+              React.createElement("strong", null, `${point.tempC}°`),
+              React.createElement("small", null, `雨${point.precipitationChance}% · 风${point.windKmh}`)
+            )
+          )
+        )
+      )
+    )
+  );
+}
+
+function ItineraryActionCard({ item, places, assets = [], setActiveView, onRemove }) {
   const place = resolveItemPlace(item, places);
-  const mapLinks = createMapLinks(place ?? { name: item.title, address: item.title });
+  const destinationPlace = resolveDestinationPlace(item, places);
+  const placeMapLinks = place ? createMapLinks(place) : null;
+  const directionsLink = place && destinationPlace ? createDirectionsLink(place, destinationPlace) : "";
+  const relatedAssets = getItemCredentialAssets(item, assets);
+  const trafficSummary = getTrafficSummary(item, place, destinationPlace);
+  const visibleNotes = getVisibleActionNotes(item);
+  const displayTitle = getActionDisplayTitle(item, place, destinationPlace);
+  const hasRoute = place && destinationPlace && destinationPlace.id !== place.id;
+  const typeLabel = item.type === "transport" ? "交通" : item.type === "lodging" ? "住宿" : item.type === "food" ? "点餐" : item.type === "note" ? "备注" : "行动";
 
   return React.createElement("div", { className: `itinerary-action-card ${item.type}` },
     React.createElement("aside", null,
       React.createElement("strong", null, item.startTime ?? "--:--"),
-      React.createElement("span", null, item.type === "transport" ? "交通" : item.type === "lodging" ? "住宿" : "行动")
+      React.createElement("span", null, typeLabel)
     ),
-    React.createElement("div", null,
+      React.createElement("div", null,
       React.createElement("div", { className: "card-title-row" },
-        React.createElement("strong", null, item.title),
-        React.createElement("button", { onClick: onRemove, title: "移除" }, React.createElement(Trash2, { size: 16 }))
+        React.createElement("strong", null, displayTitle),
+        item.endTime && React.createElement("span", { className: "time-range" }, `至 ${item.endTime}`),
+        onRemove && React.createElement("button", { onClick: onRemove, title: "移除" }, "移除")
       ),
-      React.createElement("p", null, item.notes.join(" / ")),
-      React.createElement("div", { className: "inline-actions" },
-        React.createElement("a", { href: mapLinks.google, target: "_blank", rel: "noreferrer" },
-          React.createElement(Navigation, { size: 16 }),
-          React.createElement("span", null, "导航")
+      hasRoute && React.createElement("a", { className: "route-journey", href: directionsLink, target: "_blank", rel: "noreferrer", title: "打开路线导航" },
+        React.createElement("span", { className: "route-node" }, shortPlaceName(place.name)),
+        React.createElement("span", { className: "route-line" },
+          React.createElement(Navigation, { size: 14 }),
+          React.createElement("i", null, "路线")
         ),
-        React.createElement("button", { onClick: () => setActiveView("places") },
-          React.createElement(CloudSun, { size: 16 }),
-          React.createElement("span", null, "天气")
+        React.createElement("span", { className: "route-node" }, shortPlaceName(destinationPlace.name))
+      ),
+      React.createElement("div", { className: "action-card-meta" },
+        place && !hasRoute && React.createElement("a", { className: "place-map-chip", href: placeMapLinks.google, target: "_blank", rel: "noreferrer", title: "打开地图" },
+          React.createElement(MapPin, { size: 14 }),
+          React.createElement("span", null, place.name)
         ),
-        React.createElement("button", { onClick: () => setActiveView("docs") },
-          React.createElement(FileText, { size: 16 }),
-          React.createElement("span", null, "凭证")
+        trafficSummary && !hasRoute && React.createElement("span", { className: "traffic-summary" },
+          React.createElement(Navigation, { size: 14 }),
+          React.createElement("span", null, trafficSummary)
+        ),
+        relatedAssets.length > 0 && React.createElement("button", { className: "credential-pill", onClick: () => setActiveView("docs"), title: "查看相关凭证" },
+          React.createElement(FileText, { size: 14 }),
+          React.createElement("span", null, getCredentialLabel(relatedAssets))
         )
+      ),
+      visibleNotes.length > 0 && React.createElement("ul", { className: "action-note-strip" },
+        visibleNotes.map((note) => React.createElement("li", { key: note }, note))
       )
     )
   );
 }
 
-function PlaceDirectory({ places, links }) {
+function DayPlaceDirectory({ selectedDay, dayItems, places, links, days, trip, setTrip, setSelectedDate }) {
+  const dailyPlaces = createDailyPlaces(dayItems, places);
+
+  function updatePlace(placeId, patch) {
+    setTrip({
+      ...trip,
+      places: trip.places.map((place) => place.id === placeId ? { ...place, ...patch } : place)
+    });
+  }
+
   return React.createElement("article", { className: "panel" },
-    React.createElement(SectionHeading, { icon: MapPin, title: "地点资料", subtitle: "酒店、景点、官网和订单入口" }),
-    React.createElement("div", { className: "link-stack" },
-      places.slice(0, 5).map((place) =>
-        React.createElement("div", { key: place.id, className: "jump-row" },
-          React.createElement("div", null,
-            React.createElement("strong", null, place.name),
-            React.createElement("span", null, place.address)
-          ),
-          React.createElement("a", { href: place.mapLinks.google, target: "_blank", rel: "noreferrer", title: "打开地图" }, React.createElement(Navigation, { size: 18 }))
-        )
+    React.createElement(SectionHeading, { icon: MapPin, title: "当天地点", subtitle: `${selectedDay.title} · ${selectedDay.city}` }),
+    React.createElement("div", { className: "day-switcher light" },
+      days.map((day) =>
+        React.createElement("button", {
+          key: day.id,
+          className: day.date === selectedDay.date ? "day-chip active" : "day-chip",
+          style: backgroundImageStyle(day.heroImageUrl, "--day-image"),
+          onClick: () => setSelectedDate(day.date)
+        }, day.title)
+      )
+    ),
+    React.createElement("div", { className: "daily-place-stack" },
+      dailyPlaces.map((entry) =>
+        React.createElement(PlaceInsightCard, { key: entry.key, entry })
       ),
-      links.map((link) =>
+      links.filter((link) => link.tag !== "天气").map((link) =>
         React.createElement("a", { key: link.id, href: link.url, target: "_blank", rel: "noreferrer", className: "plain-link" },
           React.createElement(ExternalLink, { size: 16 }),
           React.createElement("span", null, link.title)
         )
       )
-    )
-  );
-}
-
-function PhrasePanel({ phrases }) {
-  return React.createElement("article", { className: "panel phrase-panel" },
-    React.createElement(SectionHeading, { icon: Languages, title: "土耳其语速查", subtitle: "点餐、问候、交通、酒店" }),
-    React.createElement("div", { className: "phrase-grid" },
-      phrases.map((phrase) =>
-        React.createElement("div", { key: phrase.id, className: "phrase-card" },
-          React.createElement("span", null, phrase.category),
-          React.createElement("strong", null, phrase.tr),
-          React.createElement("small", null, phrase.zh)
+    ),
+    React.createElement(EditDrawer, { label: "编辑地点" },
+      React.createElement("div", { className: "edit-list" },
+        dailyPlaces.filter((entry) => entry.place.id && !entry.place.id.startsWith("item-place-")).map((entry) =>
+          React.createElement("div", { key: `edit-${entry.key}`, className: "edit-row" },
+            React.createElement("input", { value: entry.place.name, onChange: (event) => updatePlace(entry.place.id, { name: event.target.value }), "aria-label": "地点名称" }),
+            React.createElement("input", { value: entry.place.address ?? "", onChange: (event) => updatePlace(entry.place.id, { address: event.target.value }), "aria-label": "地点地址" }),
+            React.createElement("span", null, entry.typeLabel)
+          )
         )
       )
     )
   );
 }
 
-function CollectionPanel({ trip, setTrip }) {
+function PlaceInsightCard({ entry }) {
+  const { place, mapLinks } = entry;
+  const guide = place.guide;
+
+  return React.createElement("div", { className: `daily-place-card ${place.kind ?? "place"}` },
+    place.imageUrl && React.createElement("img", { className: "place-photo", src: place.imageUrl, alt: place.name, loading: "lazy" }),
+    React.createElement("span", null, `${entry.time} · ${entry.typeLabel}`),
+    React.createElement("strong", null, place.name),
+    place.imageCredit && React.createElement("small", { className: "place-credit" }, place.imageCredit),
+    React.createElement("small", null, place.address || entry.item.title),
+    guide && React.createElement("details", { className: "place-guide-card" },
+      React.createElement("summary", null, "地点资料"),
+      React.createElement("p", null, guide.summary),
+      React.createElement("ul", null,
+        guide.facts.map((fact) => React.createElement("li", { key: fact }, fact))
+      ),
+      React.createElement("div", { className: "guide-source-list" },
+        guide.sources.map((source) =>
+          React.createElement("a", { key: source.url, href: source.url, target: "_blank", rel: "noreferrer", className: "guide-source-link" },
+            React.createElement(ExternalLink, { size: 13 }),
+            React.createElement("span", null, source.title)
+          )
+        )
+      )
+    ),
+    React.createElement("div", { className: "place-action-row" }, renderPlaceActions(place, mapLinks))
+  );
+}
+
+function renderPlaceActions(place, mapLinks) {
+  const actions = [];
+  if (place.kind === "hotel" && place.externalUrl) {
+    actions.push(React.createElement("a", { key: "hotel", href: place.externalUrl, target: "_blank", rel: "noreferrer", className: "hotel-jump-link" },
+      React.createElement(ExternalLink, { size: 15 }),
+      React.createElement("span", null, place.externalLabel ?? "酒店页")
+    ));
+  }
+  actions.push(React.createElement("a", { key: "map", href: mapLinks.google, target: "_blank", rel: "noreferrer", className: "place-map-secondary" },
+    React.createElement(Navigation, { size: 15 }),
+    React.createElement("span", null, "位置")
+  ));
+  return actions;
+}
+
+function FoodPanel({ trip, setTrip, selectedDay }) {
+  const [draft, setDraft] = useState({ title: "", url: "" });
+  const foods = getDailyFoodRecommendations(trip, selectedDay);
+  const restaurants = getDailyRestaurantLinks(trip, selectedDay);
+
+  function addRestaurant() {
+    const normalized = normalizeGoogleMapsRestaurant(draft.url || draft.title);
+    const title = draft.title.trim() || normalized.title;
+    if (!title) return;
+    setTrip({
+      ...trip,
+      restaurantLinks: [
+        ...restaurants,
+        {
+          id: `restaurant-${Date.now()}`,
+          title,
+          date: selectedDay.date,
+          city: selectedDay.city,
+          url: normalized.href,
+          source: "google"
+        }
+      ]
+    });
+    setDraft({ title: "", url: "" });
+  }
+
+  function updateFood(foodId, patch) {
+    setTrip({
+      ...trip,
+      foodRecommendations: (trip.foodRecommendations ?? []).map((food) =>
+        food.id === foodId ? { ...food, ...patch } : food
+      )
+    });
+  }
+
+  function removeFood(foodId) {
+    setTrip({
+      ...trip,
+      foodRecommendations: (trip.foodRecommendations ?? []).filter((food) => food.id !== foodId)
+    });
+  }
+
+  function removeRestaurant(restaurantId) {
+    setTrip({
+      ...trip,
+      restaurantLinks: (trip.restaurantLinks ?? []).filter((restaurant) => restaurant.id !== restaurantId)
+    });
+  }
+
+  return React.createElement("article", { className: "panel food-panel" },
+    React.createElement(SectionHeading, { icon: Utensils, title: "当地美食推荐", subtitle: "按当天城市筛选，也可从 Google Maps 粘贴餐厅" }),
+    React.createElement("div", { className: "food-grid" },
+      foods.map((food) =>
+        React.createElement("article", { key: food.id, className: "food-card" },
+          React.createElement("span", null, food.city),
+          React.createElement("strong", null, food.title),
+          React.createElement("p", null, food.description),
+          React.createElement("a", { href: createGoogleMapsSearchUrl(food.googleQuery), target: "_blank", rel: "noreferrer" },
+            React.createElement(Navigation, { size: 15 }),
+            React.createElement("span", null, "搜附近")
+          )
+        )
+      )
+    ),
+    React.createElement("div", { className: "restaurant-stack" },
+      restaurants.map((restaurant) =>
+        React.createElement("a", { key: restaurant.id, className: "restaurant-link", href: restaurant.url, target: "_blank", rel: "noreferrer" },
+          React.createElement(MapPin, { size: 16 }),
+          React.createElement("span", null, restaurant.title),
+          React.createElement(ExternalLink, { size: 14 })
+        )
+      )
+    ),
+    React.createElement(EditDrawer, { label: "编辑美食" },
+      React.createElement("div", { className: "compact-form two" },
+        React.createElement("input", { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: "餐厅名或美食名" }),
+        React.createElement("input", { value: draft.url, onChange: (event) => setDraft({ ...draft, url: event.target.value }), placeholder: "Google Maps 链接或分享文案" }),
+        React.createElement("button", { className: "primary-button", onClick: addRestaurant },
+          React.createElement(Plus, { size: 18 }),
+          React.createElement("span", null, "Google 导入餐厅")
+        )
+      ),
+      React.createElement("div", { className: "edit-list" },
+        foods.map((food) =>
+          React.createElement("div", { key: `edit-${food.id}`, className: "edit-row" },
+            React.createElement("input", { value: food.title, onChange: (event) => updateFood(food.id, { title: event.target.value }), "aria-label": "美食标题" }),
+            React.createElement("input", { value: food.description, onChange: (event) => updateFood(food.id, { description: event.target.value }), "aria-label": "美食说明" }),
+            React.createElement("button", { onClick: () => removeFood(food.id), title: "删除美食" }, React.createElement(Trash2, { size: 15 }))
+          )
+        ),
+        restaurants.map((restaurant) =>
+          React.createElement("div", { key: `edit-${restaurant.id}`, className: "edit-row compact" },
+            React.createElement("span", null, restaurant.title),
+            React.createElement("button", { onClick: () => removeRestaurant(restaurant.id), title: "删除餐厅链接" }, React.createElement(Trash2, { size: 15 }))
+          )
+        )
+      )
+    )
+  );
+}
+
+function EditDrawer({ label = "编辑", children }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return React.createElement("div", { className: "edit-drawer" },
+    React.createElement("button", { className: "module-edit-button", onClick: () => setIsOpen((value) => !value) },
+      React.createElement(PencilLine, { size: 14 }),
+      React.createElement("span", null, label)
+    ),
+    isOpen && React.createElement("div", { className: "edit-drawer-panel" }, children)
+  );
+}
+
+function MysticPanel({ selectedDay, trip, setTrip }) {
+  const [draft, setDraft] = useState({ title: "", url: "" });
+  const baseLinks = selectedDay.mystic?.links ?? [];
+  const savedLinks = (trip.mysticLinks ?? []).filter((link) => !link.date || link.date === selectedDay.date);
+  const links = [...baseLinks, ...savedLinks];
+
+  function addMysticLink() {
+    const normalized = normalizeExternalLink(draft.url || draft.title);
+    const title = draft.title.trim() || normalized.title;
+    if (!title) return;
+    setTrip({
+      ...trip,
+      mysticLinks: [
+        ...(trip.mysticLinks ?? []),
+        { id: `mystic-link-${Date.now()}`, title, url: normalized.href, date: selectedDay.date }
+      ]
+    });
+    setDraft({ title: "", url: "" });
+  }
+
+  return React.createElement("article", { className: "panel mystic-panel" },
+    React.createElement(SectionHeading, { icon: Sparkles, title: "今日玄学", subtitle: `${selectedDay.title} · ${selectedDay.city}` }),
+    React.createElement("div", { className: "mystic-detail-card" },
+      React.createElement("span", null, selectedDay.mystic?.luckyColor ?? "今日色彩"),
+      React.createElement("strong", null, selectedDay.mystic?.summary ?? "今天宜稳住节奏。"),
+      React.createElement("p", null, `关注：${selectedDay.mystic?.focus ?? selectedDay.city}`)
+    ),
+    React.createElement("div", { className: "mystic-link-deck" },
+      links.map((link) => {
+        const meta = getMysticLinkMeta(link);
+        return React.createElement("a", { key: link.id, className: `mystic-source-card ${meta.tone}`, href: link.url, target: "_blank", rel: "noreferrer" },
+          React.createElement("span", null, meta.kicker),
+          React.createElement("strong", null, meta.title),
+          React.createElement("small", null, meta.copy),
+          React.createElement(ExternalLink, { size: 14 })
+        );
+      })
+    ),
+    React.createElement(EditDrawer, { label: "编辑玄学" },
+      React.createElement("div", { className: "compact-form two" },
+        React.createElement("input", { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: "外链标题" }),
+        React.createElement("input", { value: draft.url, onChange: (event) => setDraft({ ...draft, url: event.target.value }), placeholder: "星座/运势链接或分享文案" }),
+        React.createElement("button", { className: "primary-button", onClick: addMysticLink },
+          React.createElement(Plus, { size: 18 }),
+          React.createElement("span", null, "添加外链")
+        )
+      )
+    )
+  );
+}
+
+function getMysticLinkMeta(link) {
+  const title = link.title ?? "外部参考";
+  const url = String(link.url ?? "");
+  if (url.includes("timeanddate.com")) {
+    return { tone: "moon", kicker: "MOON", title, copy: "月相、月出月落和当地天象时间" };
+  }
+  if (url.includes("astrology.com")) {
+    return { tone: "astro", kicker: "ASTRO", title: "每日星座", copy: "英文星座日运，适合快速对照当天节奏" };
+  }
+  if (url.includes("xzw.com")) {
+    return { tone: "daily", kicker: "LUCK", title: "中文运势", copy: "中文每日运势入口，补一眼情绪和宜忌" };
+  }
+  return { tone: "custom", kicker: "LINK", title, copy: "自定义玄学参考" };
+}
+
+function PhraseLauncher({ phrases, variant = "card" }) {
+  const [isPhraseOpen, setIsPhraseOpen] = useState(false);
+  const isMini = variant === "mini";
+  const launcherClassName = isMini ? "home-widget-button phrase-mini-widget" : "phrase-launcher-card";
+
+  return React.createElement(React.Fragment, null,
+    React.createElement("button", { className: launcherClassName, onClick: () => setIsPhraseOpen(true) },
+      React.createElement(Languages, { size: isMini ? 18 : 20 }),
+      React.createElement("span", null, isMini ? "语言" : "土耳其语速查"),
+      React.createElement("strong", null, isMini ? "土耳其语" : ""),
+      React.createElement("small", null, isMini ? "点餐 / 交通 / 酒店" : "点开看点餐、交通、酒店常用句")
+    ),
+    isPhraseOpen && React.createElement("div", { className: "phrase-modal", role: "dialog", "aria-modal": "true", "aria-label": "土耳其语速查" },
+      React.createElement("button", { className: "phrase-modal-backdrop", onClick: () => setIsPhraseOpen(false), "aria-label": "关闭土耳其语速查" }),
+      React.createElement("article", { className: "phrase-modal-panel" },
+        React.createElement("header", { className: "phrase-modal-header" },
+          React.createElement("div", null,
+            React.createElement("p", { className: "eyebrow" }, "TURKISH"),
+            React.createElement("h3", null, "土耳其语速查")
+          ),
+          React.createElement("button", { className: "icon-button", onClick: () => setIsPhraseOpen(false), title: "关闭" },
+            React.createElement(X, { size: 18 })
+          )
+        ),
+        React.createElement("div", { className: "phrase-grid" },
+          phrases.map((phrase) =>
+            React.createElement("div", { key: phrase.id, className: "phrase-card" },
+              React.createElement("span", null, phrase.category),
+              React.createElement("strong", null, phrase.tr),
+              React.createElement("small", null, phrase.zh)
+            )
+          )
+        )
+      )
+    )
+  );
+}
+
+function CollectionPanel({ trip, setTrip, selectedDay }) {
   const [draft, setDraft] = useState({ title: "", url: "", tag: "小红书" });
+  const [copiedId, setCopiedId] = useState("");
+  const credentialGroups = getCredentialGroups(trip, selectedDay);
+  const visibleLinks = (trip.links ?? []).filter((link) => link.tag !== "天气");
 
   function addLink() {
     if (!draft.title.trim()) return;
+    const normalized = normalizeCollectionUrl(draft.url);
     setTrip({
       ...trip,
       links: [
         ...trip.links,
-        { id: `link-${Date.now()}`, title: draft.title, url: draft.url || "#", tag: draft.tag }
+        { id: `link-${Date.now()}`, title: draft.title.trim(), url: normalized.href, tag: normalized.tag, kind: normalized.kind }
       ]
     });
     setDraft({ title: "", url: "", tag: "小红书" });
   }
 
+  function addScreenshot(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setTrip({
+        ...trip,
+        assets: [
+          ...(trip.assets ?? []),
+          {
+            id: `asset-${Date.now()}`,
+            type: "image",
+            title: file.name,
+            src: reader.result,
+            tag: "当天凭证",
+            scope: "date",
+            date: selectedDay.date
+          }
+        ]
+      });
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  }
+
+  async function copyLink(link) {
+    await navigator.clipboard?.writeText(link.url);
+    setCopiedId(link.id);
+  }
+
   return React.createElement("article", { className: "panel" },
-    React.createElement(SectionHeading, { icon: CalendarDays, title: "收藏与附件", subtitle: "小红书、Booking、Agoda、交通截图手动归档" }),
-    React.createElement("div", { className: "compact-form two" },
-      React.createElement("input", { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: "收藏标题" }),
-      React.createElement("input", { value: draft.url, onChange: (event) => setDraft({ ...draft, url: event.target.value }), placeholder: "链接或备注" }),
-      React.createElement("button", { className: "primary-button", onClick: addLink },
-        React.createElement(Plus, { size: 18 }),
-        React.createElement("span", null, "添加")
+    React.createElement(SectionHeading, { icon: CalendarDays, title: "当天凭证", subtitle: "只显示当前日期相关截图和票据" }),
+    credentialGroups.map((group) =>
+      React.createElement("section", { key: group.id, className: "credential-section" },
+        React.createElement("header", null,
+          React.createElement("strong", null, group.title),
+          React.createElement("span", null, `${group.assets.length} 项`)
+        ),
+        group.assets.length
+          ? React.createElement("div", { className: "credential-gallery" },
+              group.assets.map((asset) => React.createElement(CredentialCard, { key: asset.id, asset }))
+            )
+          : React.createElement("p", { className: "empty-note" }, "这一天暂时没有单独凭证。")
       )
     ),
-    React.createElement("div", { className: "tag-list" },
-      trip.links.map((link) => React.createElement("span", { key: link.id }, `${link.tag ?? "链接"} · ${link.title}`))
+    visibleLinks.length > 0 && React.createElement("div", { className: "collection-stack" },
+      visibleLinks.map((link) => {
+        const normalized = normalizeCollectionUrl(link.url);
+        return React.createElement("article", { key: link.id, className: "collection-card" },
+          React.createElement("header", null,
+            React.createElement(Link2, { size: 17 }),
+            React.createElement("div", null,
+              React.createElement("strong", null, link.title),
+              React.createElement("span", null, `${link.tag ?? normalized.tag} · ${normalized.openLabel}`)
+            )
+          ),
+          React.createElement("div", { className: "collection-actions" },
+            normalized.href !== "#"
+              ? React.createElement("a", { href: normalized.href, target: "_blank", rel: "noreferrer" }, normalized.openLabel)
+              : React.createElement("span", null, "仅备注"),
+            normalized.href !== "#" && React.createElement("button", { onClick: () => copyLink(link) },
+              React.createElement(Copy, { size: 15 }),
+              React.createElement("span", null, copiedId === link.id ? "已复制" : "复制")
+            )
+          )
+        );
+      })
+    ),
+    React.createElement(EditDrawer, { label: "编辑凭证" },
+      React.createElement("div", { className: "compact-form two" },
+        React.createElement("input", { value: draft.title, onChange: (event) => setDraft({ ...draft, title: event.target.value }), placeholder: "收藏标题" }),
+        React.createElement("input", { value: draft.url, onChange: (event) => setDraft({ ...draft, url: event.target.value }), placeholder: "链接或备注" }),
+        React.createElement("button", { className: "primary-button", onClick: addLink },
+          React.createElement(Plus, { size: 18 }),
+          React.createElement("span", null, "添加")
+        )
+      ),
+      React.createElement("label", { className: "screenshot-upload" },
+        React.createElement(Camera, { size: 18 }),
+        React.createElement("span", null, "添加截图凭证"),
+        React.createElement("input", { type: "file", accept: "image/*", onChange: addScreenshot })
+      )
     )
   );
 }
 
-function CollaborationPanel({ trip, syncCloud }) {
+function CredentialCard({ asset }) {
+  const meta = `${asset.tag ?? "凭证"}${asset.date ? ` · ${asset.date.slice(5)}` : ""}`;
+  if (asset.type === "image") {
+    return React.createElement("a", { className: "credential-thumb", href: asset.src, target: "_blank", rel: "noreferrer" },
+      React.createElement("img", { className: "credential-document-image", src: asset.src, alt: asset.title, loading: "lazy" }),
+      React.createElement("span", null, asset.title),
+      React.createElement("small", null, meta)
+    );
+  }
+  return React.createElement("article", { className: "credential-thumb note" },
+    React.createElement(FileText, { size: 22 }),
+    React.createElement("span", null, asset.title),
+    React.createElement("small", null, asset.notes?.join(" / ") ?? meta)
+  );
+}
+
+function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCloud, pullCloud }) {
+  const statusText = syncState.dirty
+    ? "本地有改动"
+    : syncState.version
+      ? `第 ${syncState.version} 版`
+      : "尚未推送";
+  const updatedText = syncState.updatedBy
+    ? `${syncState.updatedBy} · ${formatSyncTime(syncState.updatedAt)}`
+    : syncState.message;
+
   return React.createElement("article", { className: "panel collaboration-panel" },
-    React.createElement(SectionHeading, { icon: Users, title: "旅伴协作", subtitle: "成员都可编辑，最后保存生效" }),
+    React.createElement(SectionHeading, { icon: Users, title: "旅伴协作", subtitle: "两个人共用一份云端快照" }),
     React.createElement("div", { className: "member-row" },
       trip.members.map((member) => React.createElement("span", { key: member.id }, member.name))
     ),
-    React.createElement("p", null, "Supabase 登录、RLS 和实时同步接口已预留；未配置环境变量时使用本地演示模式。"),
-    React.createElement("button", { className: "icon-button", onClick: syncCloud },
-      React.createElement(Users, { size: 18 }),
-      React.createElement("span", null, "测试同步状态")
+    React.createElement("div", { className: `sync-status-card ${syncState.status}` },
+      React.createElement("span", null, supabaseAdapter.mode === "supabase" ? "Supabase" : "本地演示"),
+      React.createElement("strong", null, statusText),
+      React.createElement("small", null, updatedText)
+    ),
+    React.createElement("label", { className: "sync-editor-input" },
+      React.createElement("span", null, "我的昵称"),
+      React.createElement("input", {
+        value: syncEditor,
+        onChange: (event) => setSyncEditor(event.target.value),
+        placeholder: "旅伴 A"
+      })
+    ),
+    React.createElement("div", { className: "sync-action-row" },
+      React.createElement("button", { className: "icon-button", onClick: pullCloud },
+        React.createElement(CloudSun, { size: 18 }),
+        React.createElement("span", null, "拉取云端")
+      ),
+      React.createElement("button", { className: "primary-button", onClick: pushCloud },
+        React.createElement(Users, { size: 18 }),
+        React.createElement("span", null, "推送当前")
+      )
     )
   );
+}
+
+function formatSyncTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getMonth() + 1}.${date.getDate()} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function SectionHeading({ icon: Icon, title, subtitle }) {
@@ -486,15 +1242,326 @@ function SectionHeading({ icon: Icon, title, subtitle }) {
   );
 }
 
+function backgroundImageStyle(imageUrl, propertyName) {
+  return imageUrl ? { [propertyName]: `url("${imageUrl}")` } : undefined;
+}
+
 function statusClass(status) {
   return status === "divergent" ? "status-pill warning" : "status-pill ok";
 }
 
+function createWeatherVisual(summary, report) {
+  if (report.status === "divergent") {
+    return {
+      tone: "warning",
+      title: "天气来源有分歧",
+      copy: "温度、降雨或风力出现差异，出门前点开 Open-Meteo 再确认。"
+    };
+  }
+  if ((summary.gustKmh ?? 0) >= 45 || (summary.windKmh ?? 0) >= 25) {
+    return {
+      tone: "wind",
+      title: "风感需要留意",
+      copy: "海边、滑翔伞和徒步安排留一点弹性，优先看阵风和能见度。"
+    };
+  }
+  if ((summary.precipitationChance ?? 0) >= 45) {
+    return {
+      tone: "rain",
+      title: "可能有雨，节奏放松",
+      copy: "户外段和交通衔接留缓冲，随身带轻便雨具。"
+    };
+  }
+  return {
+    tone: "calm",
+    title: "天气节奏平稳",
+    copy: "当前趋势平稳，可以按行动安排推进。"
+  };
+}
+
+function createFallbackHourlyForecast(summary = {}) {
+  const high = summary.highC ?? 20;
+  const low = summary.lowC ?? high - 6;
+  const rain = summary.precipitationChance ?? 0;
+  const wind = summary.windKmh ?? 0;
+  return [
+    { time: "06:00", tempC: low, precipitationChance: Math.max(rain - 8, 0), windKmh: Math.max(wind - 4, 0) },
+    { time: "09:00", tempC: Math.round((low + high) / 2), precipitationChance: rain, windKmh: wind },
+    { time: "12:00", tempC: high, precipitationChance: Math.min(rain + 6, 100), windKmh: wind + 2 },
+    { time: "15:00", tempC: high - 1, precipitationChance: Math.min(rain + 4, 100), windKmh: wind + 3 },
+    { time: "18:00", tempC: Math.round((low + high) / 2), precipitationChance: rain, windKmh: wind },
+    { time: "21:00", tempC: low + 1, precipitationChance: Math.max(rain - 6, 0), windKmh: Math.max(wind - 2, 0) }
+  ];
+}
+
+function getCredentialGroups(trip, selectedDay) {
+  const assets = trip.assets ?? [];
+  return [
+    {
+      id: selectedDay.date,
+      title: `${selectedDay.title} 当天凭证`,
+      assets: assets.filter((asset) => asset.date === selectedDay.date)
+    }
+  ];
+}
+
+function normalizeCollectionUrl(raw) {
+  const trimmed = extractFirstUrl(raw) || String(raw ?? "").trim();
+  if (!trimmed) return { href: "#", kind: "note", openLabel: "仅备注", tag: "备注" };
+  const href = /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const isXhs = /xiaohongshu\.com|xhslink\.com|xhs\.cn/i.test(href);
+  return {
+    href,
+    kind: isXhs ? "xiaohongshu" : "web",
+    openLabel: isXhs ? "打开小红书" : "打开网页",
+    tag: isXhs ? "小红书" : "链接"
+  };
+}
+
+function normalizeExternalLink(raw) {
+  const trimmed = extractFirstUrl(raw) || String(raw ?? "").trim();
+  if (!trimmed) return { href: "#", title: "外链" };
+  const href = /^[a-z][a-z\d+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return { href, title: readableHost(href) };
+}
+
+function normalizeGoogleMapsRestaurant(raw) {
+  const text = String(raw ?? "").trim();
+  const foundUrl = extractFirstUrl(text);
+  if (foundUrl) return { href: foundUrl, title: "Google 餐厅" };
+  return { href: createGoogleMapsSearchUrl(text || "restaurant"), title: text || "Google 餐厅" };
+}
+
+function createGoogleMapsSearchUrl(query) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+function extractFirstUrl(raw) {
+  return String(raw ?? "").match(/https?:\/\/[^\s，。)）]+/i)?.[0] ?? "";
+}
+
+function readableHost(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "外链";
+  }
+}
+
+function getDailyFoodRecommendations(trip, selectedDay) {
+  const foods = trip.foodRecommendations ?? [];
+  const matched = foods.filter((food) => (food.dates ?? []).includes(selectedDay.date));
+  if (matched.length) return matched;
+  return getFoodRecommendations(trip, selectedDay);
+}
+
+function getDailyRestaurantLinks(trip, selectedDay) {
+  const restaurants = trip.restaurantLinks ?? [];
+  const dateMatched = restaurants.filter((restaurant) => restaurant.date === selectedDay.date);
+  if (dateMatched.length) return dateMatched;
+  return restaurants.filter((restaurant) => cityMatches(selectedDay.city, restaurant.city));
+}
+
+function getFoodRecommendations(trip, selectedDay) {
+  const foods = trip.foodRecommendations ?? [];
+  const matched = foods.filter((food) => cityMatches(selectedDay.city, food.city));
+  return matched.length ? matched : foods.slice(0, 4);
+}
+
+function cityMatches(dayCity, foodCity) {
+  return String(foodCity ?? "")
+    .split(/[ /]+/)
+    .some((part) => part && String(dayCity ?? "").includes(part));
+}
+
+function getDayQuickActions({ selectedDay, dayItems, trip, currentPlace }) {
+  const firstItem = dayItems[0];
+  const firstPlace = resolveItemPlace(firstItem ?? {}, trip.places) ?? currentPlace;
+  const lodging = trip.lodgings.find((entry) => entry.date === selectedDay.date);
+  const hasAssets = dayItems.some((item) => (item.assetIds ?? []).length > 0) || (trip.assets ?? []).some((asset) => asset.date === selectedDay.date);
+  const actions = [
+    {
+      id: "day-map",
+      label: firstPlace ? `去 ${shortPlaceName(firstPlace.name)}` : "当天导航",
+      icon: Navigation,
+      href: createMapLinks(firstPlace ?? currentPlace).google,
+      external: true
+    }
+  ];
+
+  if (hasAssets) {
+    actions.push({ id: "day-docs", label: "当天凭证", icon: FileText, view: "docs" });
+  }
+
+  if (lodging?.phone) {
+    actions.push({ id: "day-phone", label: "酒店电话", icon: Phone, href: `tel:${lodging.phone.replace(/\s/g, "")}` });
+  } else if (lodging) {
+    actions.push({
+      id: "day-lodging-map",
+      label: "住宿地址",
+      icon: MapPin,
+      href: createMapLinks({ name: lodging.title, address: lodging.address }).google,
+      external: true
+    });
+  }
+
+  actions.push({
+    id: "day-reminder",
+    label: "当天提醒",
+    icon: AlarmClock,
+    href: calendarLink(selectedDay, dayItems),
+    external: true
+  });
+
+  return actions.slice(0, 4);
+}
+
+function shortPlaceName(name) {
+  const cleanName = String(name ?? "").trim();
+  if (SHORT_PLACE_LABELS.has(cleanName)) return SHORT_PLACE_LABELS.get(cleanName);
+  const airportCode = cleanName.match(/\b[A-Z]{3}\b$/);
+  if (airportCode) return airportCode[0];
+  return cleanName.slice(0, 8);
+}
+
 function resolveItemPlace(item, places) {
+  if (item?.primaryPlaceId) return places.find((place) => place.id === item.primaryPlaceId);
+  if (item?.placeId) return places.find((place) => place.id === item.placeId);
   return places.find((place) => {
-    const haystack = `${item.title} ${item.notes.join(" ")}`;
+    const haystack = `${item.title ?? ""} ${(item.notes ?? []).join(" ")}`;
     return haystack.includes(place.name) || haystack.includes(place.city);
   });
+}
+
+function resolveDestinationPlace(item, places) {
+  if (!item?.destinationPlaceId) return null;
+  return places.find((place) => place.id === item.destinationPlaceId) ?? null;
+}
+
+function getItemCredentialAssets(item, assets) {
+  const ids = new Set(item.assetIds ?? []);
+  if (!ids.size) return [];
+  return assets.filter((asset) => ids.has(asset.id));
+}
+
+function getCredentialLabel(assets = []) {
+  const tags = assets.map((asset) => asset.tag).filter(Boolean);
+  if (!tags.length) return "相关文件";
+  const uniqueTags = [...new Set(tags)];
+  return uniqueTags.length === 1 ? uniqueTags[0] : "相关文件";
+}
+
+function getActionDisplayTitle(item, place, destinationPlace) {
+  const title = String(item.title ?? "").trim();
+  if (item.type === "transport") return getTransportDisplayTitle(title);
+  const places = [place, destinationPlace].filter(Boolean);
+  const stripped = stripRepeatedPlaces(title, places);
+  if (stripped && !isTitleMostlyPlace(title, places)) {
+    return compactActionText(stripped);
+  }
+  return getActionFallbackTitle(item, title);
+}
+
+function getTransportDisplayTitle(title) {
+  const flight = String(title).match(/\b[A-Z]{2}\d{3,4}\b/);
+  if (flight) return `${flight[0]} 航班`;
+  if (/夜巴|巴士|大巴|bus|kimil|kamil/i.test(title)) return "夜巴转场";
+  if (/包车/.test(title)) return "包车转场";
+  if (/机场|airport/i.test(title)) return "机场衔接";
+  if (/到达|抵达/.test(title)) return "抵达衔接";
+  if (/→|->|-/.test(title)) return "路线衔接";
+  return "交通衔接";
+}
+
+function stripRepeatedPlaces(title, places = []) {
+  const labels = places
+    .flatMap((place) => [place.name, shortPlaceName(place.name), place.city])
+    .filter((label) => label && String(label).trim().length > 1)
+    .map((label) => String(label).trim())
+    .sort((a, b) => b.length - a.length);
+
+  return labels.reduce((current, label) =>
+    current.replace(new RegExp(escapeRegExp(label), "gi"), " ")
+  , String(title ?? ""))
+    .replace(/\s*(→|->|-|—|–)\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,，.。:：/|·+＋]+|[\s,，.。:：/|·+＋]+$/g, "")
+    .trim();
+}
+
+function isTitleMostlyPlace(title, places = []) {
+  const original = String(title ?? "").replace(/\s+/g, "");
+  if (!original || !places.length) return false;
+  const stripped = stripRepeatedPlaces(title, places).replace(/\s+/g, "");
+  return stripped.length <= 2 || stripped.length / original.length < 0.35;
+}
+
+function getActionFallbackTitle(item, title) {
+  if (item.type === "transport") {
+    if (/航班|机场|flight|airport/i.test(title)) return "航班衔接";
+    if (/夜巴|巴士|大巴|bus/i.test(title)) return "城际交通";
+    return "路线衔接";
+  }
+  if (item.type === "lodging") return "办理入住";
+  if (item.type === "food") return "用餐安排";
+  if (item.type === "note") return "当日提醒";
+  if (/滑翔伞/.test(title)) return "滑翔伞安排";
+  if (/徒步/.test(title)) return "徒步安排";
+  if (/古城|博物馆|教堂|遗址/.test(title)) return "参观安排";
+  return compactActionText(title) || "行动安排";
+}
+
+function getVisibleActionNotes(item) {
+  return (item.notes ?? [])
+    .map((note) => compactActionText(note, 58))
+    .filter((note) => note && !/截图识别|订单号|Booking|Agoda|PNR|总价/.test(note))
+    .slice(0, 3);
+}
+
+function compactActionText(text, limit = 34) {
+  const normalized = String(text).replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getTrafficSummary(item, place, destinationPlace) {
+  if (item.type !== "transport" && !destinationPlace) return "";
+  if (place && destinationPlace) return `${shortPlaceName(place.name)} → ${shortPlaceName(destinationPlace.name)}`;
+  if (destinationPlace) return `前往 ${shortPlaceName(destinationPlace.name)}`;
+  return "按当天交通节奏预留缓冲";
+}
+
+function createDailyPlaces(dayItems, places) {
+  const seen = new Set();
+  return dayItems.map((item) => {
+    const resolved = resolveItemPlace(item, places);
+    const place = resolved ?? {
+      id: `item-place-${item.id}`,
+      name: item.address ? item.title : inferPlaceName(item),
+      address: item.address ?? item.title
+    };
+    const key = place.id ?? place.name;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    return {
+      key,
+      item,
+      place,
+      mapLinks: createMapLinks(place),
+      time: item.startTime ?? "全天",
+      typeLabel: item.type === "transport" ? "交通" : item.type === "lodging" ? "住宿" : item.type === "food" ? "餐饮" : "行动"
+    };
+  }).filter(Boolean);
+}
+
+function inferPlaceName(item) {
+  const routeParts = item.title.split(/\s*[→-]\s*/);
+  if (routeParts.length > 1) return routeParts[0].trim();
+  return item.title;
 }
 
 function calendarLink(day, items) {

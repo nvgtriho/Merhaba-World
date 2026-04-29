@@ -15,7 +15,15 @@ const LOCAL_ASSETS = [
   "/assets/icon.svg",
   "/assets/icon-maskable.svg",
   "/assets/istanbul-hero.svg",
-  "/assets/turkey-route.svg"
+  "/assets/turkey-route.svg",
+  "/assets/wiki/flight-tk2001.jpg",
+  "/assets/wiki/flight-tk2320.jpg",
+  "/assets/wiki/king-apart-goreme-confirmation.jpg",
+  "/assets/wiki/saint-john-confirmation.jpg",
+  "/assets/wiki/saint-john-place.jpg",
+  "/assets/wiki/salonika-suites-confirmation.png",
+  "/assets/wiki/salonika-suites-place.jpg",
+  "/assets/wiki/ticket-kamilkoc-antalya-goreme.jpg"
 ];
 
 self.addEventListener("install", (event) => {

@@ -10,3 +10,17 @@ export function createMapLinks(place) {
     copyText: query
   };
 }
+
+export function createDirectionsLink(origin, destination) {
+  const originQuery = placeQuery(origin);
+  const destinationQuery = placeQuery(destination);
+  const url = new URL("https://www.google.com/maps/dir/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("origin", originQuery);
+  url.searchParams.set("destination", destinationQuery);
+  return url.toString();
+}
+
+function placeQuery(place) {
+  return [place?.name, place?.address].filter(Boolean).join(", ");
+}

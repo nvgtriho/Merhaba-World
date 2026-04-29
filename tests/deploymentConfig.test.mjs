@@ -71,6 +71,15 @@ test("deployment verifier accepts a local static preview serving cached PWA asse
   }
 });
 
+test("service worker precaches recognized wiki credential screenshots", async () => {
+  const serviceWorker = await readFile(new URL("../service-worker.js", import.meta.url), "utf8");
+
+  assert.equal(serviceWorker.includes("/assets/wiki/saint-john-confirmation.jpg"), true);
+  assert.equal(serviceWorker.includes("/assets/wiki/salonika-suites-confirmation.png"), true);
+  assert.equal(serviceWorker.includes("/assets/wiki/ticket-kamilkoc-antalya-goreme.jpg"), true);
+  assert.equal(serviceWorker.includes("/assets/wiki/flight-tk2001.jpg"), true);
+});
+
 function assertHasNoStoreHeader(config, source) {
   const route = config.headers.find((entry) => entry.source === source);
   assert.ok(route, `${source} header rule is missing`);
@@ -88,7 +97,11 @@ function createStaticServer() {
     ".js": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".webmanifest": "application/manifest+json; charset=utf-8",
-    ".svg": "image/svg+xml; charset=utf-8"
+    ".svg": "image/svg+xml; charset=utf-8",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp"
   };
 
   return createServer(async (request, response) => {
