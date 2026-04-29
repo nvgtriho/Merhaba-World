@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createSupabaseAdapter, createTripSnapshot } from "../src/lib/supabaseAdapter.js";
+import {
+  createSupabaseAdapter,
+  createTripSnapshot,
+  DEFAULT_SUPABASE_ANON_KEY,
+  DEFAULT_SUPABASE_URL
+} from "../src/lib/supabaseAdapter.js";
 
 const baseTrip = {
   id: "turkey-2026",
@@ -44,6 +49,8 @@ test("creates a complete trip snapshot row", () => {
 
 test("local demo mode stores full trip snapshots and pulls them back", async () => {
   const adapter = createSupabaseAdapter({
+    url: "",
+    anonKey: "",
     storage: createMemoryStorage(),
     now: () => "2026-05-01T08:00:00.000Z"
   });
@@ -59,6 +66,14 @@ test("local demo mode stores full trip snapshots and pulls them back", async () 
   assert.deepEqual(pullResult.trip, baseTrip);
 });
 
+test("uses the bundled Supabase project by default for zero-config phone sync", () => {
+  const adapter = createSupabaseAdapter({ storage: createMemoryStorage() });
+
+  assert.equal(DEFAULT_SUPABASE_URL, "https://dzbvfsjeuqjjhxiyavyt.supabase.co");
+  assert.equal(DEFAULT_SUPABASE_ANON_KEY, "sb_publishable_13qf67r3pdiLyWF5R-7J-g_DuIu8dpr");
+  assert.equal(adapter.mode, "supabase");
+});
+
 test("supabase mode can be enabled from saved public config on both phones", () => {
   const storage = createMemoryStorage();
   storage.setItem("short-trip-supabase-url", "https://example.supabase.co");
@@ -71,6 +86,8 @@ test("supabase mode can be enabled from saved public config on both phones", () 
 
 test("local demo mode refuses stale pushes instead of overwriting newer cloud data", async () => {
   const adapter = createSupabaseAdapter({
+    url: "",
+    anonKey: "",
     storage: createMemoryStorage(),
     now: () => "2026-05-01T08:00:00.000Z"
   });

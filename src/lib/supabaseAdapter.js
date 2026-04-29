@@ -1,5 +1,7 @@
 const SNAPSHOT_TABLE = "trip_snapshots";
 const LOCAL_PREFIX = "short-trip-cloud-snapshot:";
+export const DEFAULT_SUPABASE_URL = "https://dzbvfsjeuqjjhxiyavyt.supabase.co";
+export const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_13qf67r3pdiLyWF5R-7J-g_DuIu8dpr";
 export const SUPABASE_URL_STORAGE_KEY = "short-trip-supabase-url";
 export const SUPABASE_ANON_KEY_STORAGE_KEY = "short-trip-supabase-anon-key";
 
@@ -18,8 +20,8 @@ export function createSupabaseAdapter(config = {}) {
   const storage = config.storage ?? runtimeWindow.localStorage;
   const storedUrl = readStorageValue(storage, SUPABASE_URL_STORAGE_KEY);
   const storedAnonKey = readStorageValue(storage, SUPABASE_ANON_KEY_STORAGE_KEY);
-  const url = config.url ?? runtimeWindow.__SUPABASE_URL__ ?? storedUrl ?? "";
-  const anonKey = config.anonKey ?? runtimeWindow.__SUPABASE_ANON_KEY__ ?? storedAnonKey ?? "";
+  const url = config.url ?? runtimeWindow.__SUPABASE_URL__ ?? storedUrl ?? DEFAULT_SUPABASE_URL;
+  const anonKey = config.anonKey ?? runtimeWindow.__SUPABASE_ANON_KEY__ ?? storedAnonKey ?? DEFAULT_SUPABASE_ANON_KEY;
   const now = config.now ?? (() => new Date().toISOString());
   const mode = url && anonKey ? "supabase" : "local-demo";
 
@@ -93,9 +95,10 @@ export function createSupabaseAdapter(config = {}) {
 
 function readStorageValue(storage, key) {
   try {
-    return storage?.getItem?.(key) ?? "";
+    const value = storage?.getItem?.(key);
+    return value?.trim() || undefined;
   } catch {
-    return "";
+    return undefined;
   }
 }
 
