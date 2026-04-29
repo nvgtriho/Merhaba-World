@@ -1853,6 +1853,16 @@ textarea {
   font-weight: 900;
 }
 
+.credential-section.secondary {
+  padding-top: 10px;
+  border-top: 1px dashed rgba(37, 109, 133, 0.18);
+}
+
+.credential-section.secondary header strong {
+  color: #5d6f7a;
+  font-size: 0.9rem;
+}
+
 .empty-note {
   padding: 12px;
   border-radius: var(--radius);

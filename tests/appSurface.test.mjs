@@ -171,16 +171,22 @@ test("shows weather mystic and Turkish as compact home widgets before details", 
   assert.equal(styles.includes(".home-widget-button"), true);
 });
 
-test("keeps only selected-day credentials and removes common/archive shortcuts", async () => {
+test("shows selected-day credentials first while keeping all synced credentials visible", async () => {
   const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   const seed = await readFile(new URL("../src/data/tripSeed.js", import.meta.url), "utf8");
 
   assert.equal(source.includes("getCredentialGroups"), true);
+  assert.equal(source.includes("groupCredentialAssetsByDate"), true);
+  assert.equal(source.includes('kind: "secondary"'), true);
+  assert.equal(source.includes("当前日期优先"), true);
   assert.equal(source.includes("credential-section"), true);
+  assert.equal(styles.includes(".credential-section.secondary"), true);
   assert.equal(source.includes('id: "common"'), false);
   assert.equal(seed.includes("asset-trip-common"), false);
   assert.equal(seed.includes("Booking / Agoda 订单截图归档"), false);
   assert.equal(source.includes('link.tag !== "天气"'), true);
+  assert.equal(source.includes("只显示当前日期相关截图和票据"), false);
 });
 
 test("opens Turkish phrases in a click-triggered overlay instead of a full panel", async () => {

@@ -1433,9 +1433,9 @@ function CollectionPanel({ trip, setTrip, selectedDay }) {
   }
 
   return React.createElement("article", { className: "panel" },
-    React.createElement(SectionHeading, { icon: CalendarDays, title: "当天凭证", subtitle: "只显示当前日期相关截图和票据" }),
+    React.createElement(SectionHeading, { icon: CalendarDays, title: "当天与全部凭证", subtitle: "当前日期优先；云端拉取到的其他日期也会一起显示" }),
     credentialGroups.map((group) =>
-      React.createElement("section", { key: group.id, className: "credential-section" },
+      React.createElement("section", { key: group.id, className: `credential-section ${group.kind ?? ""}`.trim() },
         React.createElement("header", null,
           React.createElement("strong", null, group.title),
           React.createElement("span", null, `${group.assets.length} 项`)
@@ -1444,7 +1444,7 @@ function CollectionPanel({ trip, setTrip, selectedDay }) {
           ? React.createElement("div", { className: "credential-gallery" },
               group.assets.map((asset) => React.createElement(CredentialCard, { key: asset.id, asset }))
             )
-          : React.createElement("p", { className: "empty-note" }, "这一天暂时没有单独凭证。")
+          : React.createElement("p", { className: "empty-note" }, group.emptyMessage ?? "这一天暂时没有单独凭证。")
       )
     ),
     visibleLinks.length > 0 && React.createElement("div", { className: "collection-stack" },
@@ -1677,13 +1677,42 @@ function createFallbackHourlyForecast(summary = {}) {
 
 function getCredentialGroups(trip, selectedDay) {
   const assets = trip.assets ?? [];
+  const currentAssets = assets.filter((asset) => asset.date === selectedDay.date);
+  const otherAssets = assets.filter((asset) => asset.date !== selectedDay.date);
   return [
     {
-      id: selectedDay.date,
+      id: `current-${selectedDay.date}`,
+      kind: "current",
       title: `${selectedDay.title} 当天凭证`,
-      assets: assets.filter((asset) => asset.date === selectedDay.date)
-    }
+      assets: currentAssets,
+      emptyMessage: otherAssets.length
+        ? "这一天暂时没有单独凭证；下面是云端同步到的其他日期凭证。"
+        : "这一天暂时没有单独凭证。"
+    },
+    ...groupCredentialAssetsByDate(otherAssets)
   ];
+}
+
+function groupCredentialAssetsByDate(assets = []) {
+  const groups = new Map();
+  for (const asset of assets) {
+    const key = asset.date || "undated";
+    groups.set(key, [...(groups.get(key) ?? []), asset]);
+  }
+  return Array.from(groups.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, groupedAssets]) => ({
+      id: `other-${date}`,
+      kind: "secondary",
+      title: date === "undated" ? "未标日期凭证" : `${formatCredentialDateLabel(date)} 凭证`,
+      assets: groupedAssets
+    }));
+}
+
+function formatCredentialDateLabel(date) {
+  const match = String(date ?? "").match(/^\d{4}-(\d{2})-(\d{2})$/);
+  if (!match) return String(date ?? "其他日期");
+  return `${Number(match[1])}.${Number(match[2])}`;
 }
 
 function normalizeCollectionUrl(raw) {
