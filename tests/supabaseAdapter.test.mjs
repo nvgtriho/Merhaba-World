@@ -74,6 +74,53 @@ test("uses the bundled Supabase project by default for zero-config phone sync", 
   assert.equal(adapter.mode, "supabase");
 });
 
+test("bundled public config wins over stale saved phone config", async () => {
+  const storage = createMemoryStorage();
+  storage.setItem("short-trip-supabase-url", "https://old.example.supabase.co");
+  storage.setItem("short-trip-supabase-anon-key", "old-key");
+  let clientConfig = null;
+  const fakeClient = {
+    from() {
+      return {
+        select() {
+          return {
+            eq() {
+              return {
+                async maybeSingle() {
+                  return { data: null, error: null };
+                }
+              };
+            }
+          };
+        },
+        upsert(row) {
+          return {
+            select() {
+              return {
+                async maybeSingle() {
+                  return { data: row, error: null };
+                }
+              };
+            }
+          };
+        }
+      };
+    }
+  };
+  const adapter = createSupabaseAdapter({
+    storage,
+    clientFactory: async (config) => {
+      clientConfig = config;
+      return fakeClient;
+    }
+  });
+
+  await adapter.pushTrip(baseTrip, { updatedBy: "A" });
+
+  assert.equal(clientConfig.url, DEFAULT_SUPABASE_URL);
+  assert.equal(clientConfig.anonKey, DEFAULT_SUPABASE_ANON_KEY);
+});
+
 test("supabase mode can be enabled from saved public config on both phones", () => {
   const storage = createMemoryStorage();
   storage.setItem("short-trip-supabase-url", "https://example.supabase.co");
