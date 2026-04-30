@@ -229,6 +229,33 @@ test("adds static map thumbnails and approximate cuisine notes without route thu
   assert.equal(styles.includes(".cuisine-chip-list"), true);
 });
 
+test("uses food photos for recommendations instead of map thumbnails", async () => {
+  const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  const seed = await readFile(new URL("../src/data/tripSeed.js", import.meta.url), "utf8");
+
+  assert.equal(source.includes("FoodImage"), true);
+  assert.equal(source.includes("food-photo"), true);
+  assert.equal(source.includes("food.imageUrl"), true);
+  assert.equal(source.includes("food-map-thumbnail"), false);
+  assert.equal(seed.includes("imageUrl"), true);
+  assert.equal(seed.includes("imageCredit"), true);
+  assert.equal(styles.includes(".food-photo"), true);
+});
+
+test("enhances Google restaurant cards with Places photos and metadata", async () => {
+  const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  assert.equal(source.includes("fetchPlacePreview"), true);
+  assert.equal(source.includes("placesPreviewById"), true);
+  assert.equal(source.includes("restaurant-place-photo"), true);
+  assert.equal(source.includes("place-photo-attribution"), true);
+  assert.equal(source.includes("restaurant-google-detail"), true);
+  assert.equal(styles.includes(".restaurant-place-photo"), true);
+  assert.equal(styles.includes(".place-photo-attribution"), true);
+});
+
 test("keeps food recommendations day scoped and edit controls unobtrusive", async () => {
   const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
@@ -289,6 +316,20 @@ test("adds a lightweight cloud snapshot panel for two-person editing", async () 
   assert.equal(adapter.includes("payload"), true);
   assert.equal(adapter.includes("version"), true);
   assert.equal(adapter.includes("short-trip-supabase-url"), true);
+});
+
+test("collaboration sync is explicit about all-day snapshots and cloud clearing", async () => {
+  const source = await readFile(new URL("../src/App.js", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  assert.equal(source.includes("clearCloud"), true);
+  assert.equal(source.includes("clearTrip"), true);
+  assert.equal(source.includes("拉取全行程"), true);
+  assert.equal(source.includes("推送全行程"), true);
+  assert.equal(source.includes("清空云端"), true);
+  assert.equal(source.includes("全部日期"), true);
+  assert.equal(source.includes("本机当前行程不会删除"), true);
+  assert.equal(styles.includes(".sync-clear-button"), true);
 });
 
 test("renders an hourly weather time-series chart instead of only static source cards", async () => {

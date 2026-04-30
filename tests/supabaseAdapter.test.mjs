@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  createClearedTripSnapshot,
   createSupabaseAdapter,
   createTripSnapshot,
   DEFAULT_SUPABASE_ANON_KEY,
@@ -163,6 +164,94 @@ test("missing cloud snapshots use neutral retry copy instead of no-trip copy", a
   assert.equal(result.tripId, "turkey-2026");
   assert.equal(result.message, "云端暂无可拉取版本");
   assert.equal(result.message.includes("还没有这份行程"), false);
+});
+
+test("cloud-cleared snapshots behave like an empty cloud instead of a broken trip", async () => {
+  const row = createClearedTripSnapshot("turkey-2026", {
+    updatedAt: "2026-05-01T08:00:00.000Z",
+    updatedBy: "A"
+  });
+  const fakeClient = {
+    from() {
+      return {
+        select() {
+          return {
+            eq() {
+              return {
+                async maybeSingle() {
+                  return { data: row, error: null };
+                }
+              };
+            }
+          };
+        }
+      };
+    }
+  };
+  const adapter = createSupabaseAdapter({
+    url: "https://example.supabase.co",
+    anonKey: "anon",
+    clientFactory: async () => fakeClient
+  });
+
+  const result = await adapter.pullTrip("turkey-2026");
+
+  assert.equal(row.payload.cloudCleared, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.missing, true);
+  assert.equal(result.cleared, true);
+  assert.equal(result.trip, undefined);
+  assert.equal(result.message, "云端已清空，暂无可拉取版本");
+});
+
+test("push after a cloud clear writes one complete all-days trip snapshot", async () => {
+  let storedRow = createClearedTripSnapshot("turkey-2026", {
+    updatedAt: "2026-05-01T08:00:00.000Z",
+    updatedBy: "A"
+  });
+  const fakeClient = {
+    from() {
+      return {
+        select() {
+          return {
+            eq(_field, id) {
+              return {
+                async maybeSingle() {
+                  return { data: storedRow?.id === id ? storedRow : null, error: null };
+                }
+              };
+            }
+          };
+        },
+        upsert(row) {
+          storedRow = row;
+          return {
+            select() {
+              return {
+                async maybeSingle() {
+                  return { data: row, error: null };
+                }
+              };
+            }
+          };
+        }
+      };
+    }
+  };
+  const adapter = createSupabaseAdapter({
+    url: "https://example.supabase.co",
+    anonKey: "anon",
+    clientFactory: async () => fakeClient,
+    now: () => "2026-05-01T09:00:00.000Z"
+  });
+
+  const result = await adapter.pushTrip(baseTrip, { updatedBy: "B" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.version, 1);
+  assert.deepEqual(storedRow.payload, baseTrip);
+  assert.deepEqual(storedRow.payload.items, baseTrip.items);
+  assert.equal(storedRow.updated_by, "B");
 });
 
 test("local demo mode refuses stale pushes instead of overwriting newer cloud data", async () => {

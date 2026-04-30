@@ -1940,8 +1940,40 @@ textarea {
   background: #fffdf7;
 }
 
-.food-map-thumbnail {
-  margin-bottom: 2px;
+.food-photo,
+.restaurant-place-photo {
+  position: relative;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid rgba(228, 110, 85, 0.14);
+  border-radius: var(--radius);
+  background: #f3f4f6;
+}
+
+.food-photo img,
+.restaurant-place-photo img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.food-photo figcaption,
+.place-photo-attribution {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #ffffff;
+  background: rgba(31, 41, 48, 0.68);
+  font-size: 0.68rem;
+  font-weight: 900;
+  backdrop-filter: blur(8px);
 }
 
 .food-card span {
@@ -2009,8 +2041,25 @@ textarea {
   background: linear-gradient(145deg, #ffffff, #f7fbfc);
 }
 
-.restaurant-map-thumbnail {
-  margin-bottom: 1px;
+.restaurant-place-photo {
+  border-color: rgba(37, 109, 133, 0.14);
+}
+
+.restaurant-google-detail {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 0 8px;
+  color: #ffffff;
+  background: rgba(37, 109, 133, 0.78);
+  font-size: 0.7rem;
+  font-weight: 950;
+  backdrop-filter: blur(8px);
 }
 
 .restaurant-card header {
@@ -2406,12 +2455,33 @@ textarea {
 
 .sync-action-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 8px;
 }
 
 .sync-action-row button {
   justify-content: center;
+}
+
+.sync-clear-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  border: 1px solid rgba(143, 75, 63, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #7b3f36;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.sync-scope-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .sync-help-card {

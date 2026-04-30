@@ -1,4 +1,4 @@
-const CACHE_NAME = "merhaba-world-v5";
+const CACHE_NAME = "merhaba-world-v6";
 const STATIC_MAP_CACHE = "merhaba-world-static-maps-v1";
 const LOCAL_ASSETS = [
   "/",
@@ -10,6 +10,7 @@ const LOCAL_ASSETS = [
   "/src/lib/assistantLinks.js",
   "/src/lib/maps.js",
   "/src/lib/offlineStore.js",
+  "/src/lib/places.js",
   "/src/lib/supabaseAdapter.js",
   "/src/lib/weather.js",
   "/src/lib/weatherLocations.js",
@@ -37,6 +38,7 @@ const NETWORK_FIRST_PATHS = new Set([
   "/src/data/tripSeed.js",
   "/src/lib/assistantLinks.js",
   "/src/lib/maps.js",
+  "/src/lib/places.js",
   "/src/lib/supabaseAdapter.js"
 ]);
 

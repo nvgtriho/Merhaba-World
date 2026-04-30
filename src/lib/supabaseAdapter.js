@@ -15,6 +15,21 @@ export function createTripSnapshot(trip, options = {}) {
   };
 }
 
+export function createClearedTripSnapshot(tripId, options = {}) {
+  return {
+    id: tripId,
+    payload: {
+      id: tripId,
+      cloudCleared: true,
+      cleared_at: options.updatedAt ?? new Date().toISOString(),
+      cleared_by: options.updatedBy ?? "旅伴"
+    },
+    version: 0,
+    updated_at: options.updatedAt ?? new Date().toISOString(),
+    updated_by: options.updatedBy ?? "旅伴"
+  };
+}
+
 export function createSupabaseAdapter(config = {}) {
   const runtimeWindow = typeof window === "undefined" ? {} : window;
   const storage = config.storage ?? runtimeWindow.localStorage;
@@ -84,11 +99,33 @@ export function createSupabaseAdapter(config = {}) {
     return normalizeSnapshotResult(data ?? row, mode, `已推送云端第 ${row.version} 版`);
   }
 
+  async function clearTrip(tripId, options = {}) {
+    if (!tripId) return { ok: false, mode, message: "缺少行程 ID" };
+    const row = createClearedTripSnapshot(tripId, {
+      updatedAt: now(),
+      updatedBy: options.updatedBy
+    });
+
+    if (mode === "local-demo") {
+      storage?.removeItem?.(`${LOCAL_PREFIX}${tripId}`);
+      return { ok: true, mode, missing: true, cleared: true, tripId, message: "本地演示云端已清空" };
+    }
+
+    const client = await getClient();
+    const { error } = await client
+      .from(SNAPSHOT_TABLE)
+      .upsert(row);
+
+    if (error) return { ok: false, mode, tripId, message: `云端清空失败：${error.message}` };
+    return { ok: true, mode, missing: true, cleared: true, tripId, message: "云端已清空" };
+  }
+
   return {
     mode,
     tableName: SNAPSHOT_TABLE,
     pushTrip,
     pullTrip,
+    clearTrip,
     syncTrip: pushTrip
   };
 }
@@ -121,6 +158,20 @@ function writeLocalSnapshot(row, storage) {
 }
 
 function normalizeSnapshotResult(row, mode, message) {
+  if (isClearedSnapshot(row)) {
+    return {
+      ok: false,
+      missing: true,
+      cleared: true,
+      mode,
+      message: "云端已清空，暂无可拉取版本",
+      tripId: row.id,
+      version: row.version ?? 0,
+      updatedAt: row.updated_at,
+      updatedBy: row.updated_by
+    };
+  }
+
   return {
     ok: true,
     mode,
@@ -131,4 +182,8 @@ function normalizeSnapshotResult(row, mode, message) {
     updatedAt: row.updated_at,
     updatedBy: row.updated_by
   };
+}
+
+function isClearedSnapshot(row) {
+  return row?.payload?.cloudCleared === true;
 }

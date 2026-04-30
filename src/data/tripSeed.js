@@ -460,12 +460,12 @@ export const seedTrip = {
     { id: "asset-flight-tk2001", type: "image", title: "TK2001 NAV → IST 机票截图", src: "/assets/wiki/flight-tk2001.jpg", tag: "交通凭证", scope: "date", date: "2026-05-06" }
   ],
   foodRecommendations: [
-    { id: "food-1", dates: ["2026-05-01"], city: "伊兹密尔 / 以弗所", title: "Kumru 三明治", description: "伊兹密尔街头经典，转机后适合快速补能。", googleQuery: "Kumru sandwich Izmir" },
-    { id: "food-2", dates: ["2026-05-01"], city: "塞尔丘克", title: "Gözleme 土耳其煎饼", description: "古城日轻食，适合配酸奶或茶。", googleQuery: "Gozleme Selcuk Turkey" },
-    { id: "food-3", dates: ["2026-05-02", "2026-05-03"], city: "费特希耶", title: "海鲜与 meze", description: "海边晚餐优先选烤鱼、冷盘和清爽沙拉。", googleQuery: "Fethiye seafood meze restaurant" },
-    { id: "food-4", dates: ["2026-05-02", "2026-05-03"], city: "厄吕代尼兹", title: "土耳其早餐", description: "滑翔伞前后都适合，注意别吃太撑。", googleQuery: "Oludeniz Turkish breakfast" },
-    { id: "food-5", dates: ["2026-05-04", "2026-05-05"], city: "格雷梅", title: "Testi Kebab 瓦罐炖肉", description: "卡帕多奇亚招牌菜，适合作为到达后的正餐。", googleQuery: "Testi Kebab Goreme" },
-    { id: "food-6", dates: ["2026-05-05", "2026-05-06"], city: "格雷梅", title: "Menemen 与土耳其茶", description: "热气球日的轻早餐备选，节奏慢一点。", googleQuery: "Menemen Goreme breakfast" }
+    { id: "food-1", dates: ["2026-05-01"], city: "伊兹密尔 / 以弗所", title: "Kumru 三明治", description: "伊兹密尔街头经典，转机后适合快速补能。", googleQuery: "Kumru sandwich Izmir", imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Izmir%20kumru%20sandwich%201.jpg?width=960", imageCredit: "Wikimedia Commons · Izmir kumru" },
+    { id: "food-2", dates: ["2026-05-01"], city: "塞尔丘克", title: "Gözleme 土耳其煎饼", description: "古城日轻食，适合配酸奶或茶。", googleQuery: "Gozleme Selcuk Turkey", imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Gozleme%20at%20Manning%20Market.jpg?width=960", imageCredit: "Wikimedia Commons · Gözleme" },
+    { id: "food-3", dates: ["2026-05-02", "2026-05-03"], city: "费特希耶", title: "海鲜与 meze", description: "海边晚餐优先选烤鱼、冷盘和清爽沙拉。", googleQuery: "Fethiye seafood meze restaurant", imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Turkish%20Meze%20Plate.jpg?width=960", imageCredit: "Wikimedia Commons · Turkish meze" },
+    { id: "food-4", dates: ["2026-05-02", "2026-05-03"], city: "厄吕代尼兹", title: "土耳其早餐", description: "滑翔伞前后都适合，注意别吃太撑。", googleQuery: "Oludeniz Turkish breakfast", imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Turkish%20breakfast.jpg?width=960", imageCredit: "Wikimedia Commons · Turkish breakfast" },
+    { id: "food-5", dates: ["2026-05-04", "2026-05-05"], city: "格雷梅", title: "Testi Kebab 瓦罐炖肉", description: "卡帕多奇亚招牌菜，适合作为到达后的正餐。", googleQuery: "Testi Kebab Goreme", imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/TestiKebabGoreme.jpg?width=960", imageCredit: "Wikimedia Commons · Testi kebab" },
+    { id: "food-6", dates: ["2026-05-05", "2026-05-06"], city: "格雷梅", title: "Menemen 与土耳其茶", description: "热气球日的轻早餐备选，节奏慢一点。", googleQuery: "Menemen Goreme breakfast", imageUrl: "https://commons.wikimedia.org/wiki/Special:FilePath/Menemen%20%2849657982813%29.jpg?width=960", imageCredit: "Wikimedia Commons · Menemen" }
   ],
   restaurantLinks: [
     { id: "restaurant-goreme-kebab", title: "格雷梅 Testi Kebab 搜索", date: "2026-05-04", city: "格雷梅", url: "https://www.google.com/maps/search/?api=1&query=Testi%20Kebab%20Goreme", source: "google" },

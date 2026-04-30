@@ -33,6 +33,7 @@ import {
   inferCuisineInfo,
   normalizeGoogleMapsPlace
 } from "./lib/maps.js";
+import { createRestaurantPlaceQuery, fetchPlacePreview } from "./lib/places.js";
 import { createAssistantLinks, createClockReminderLink, createClockReminderNote } from "./lib/assistantLinks.js";
 import { createIndexedDbStore } from "./lib/offlineStore.js";
 import {
@@ -176,7 +177,7 @@ function App() {
 
   async function pushCloud() {
     if (typeof localStorage !== "undefined") localStorage.setItem("short-trip-sync-editor", syncEditor);
-    setSyncState((current) => ({ ...current, status: "syncing", message: "正在推送云端" }));
+    setSyncState((current) => ({ ...current, status: "syncing", message: "正在推送全行程" }));
     const result = await supabaseAdapter.pushTrip(trip, {
       baseVersion: syncState.version,
       updatedBy: syncEditor.trim() || "旅伴"
@@ -203,7 +204,7 @@ function App() {
 
   async function pullLatestCloud(options = {}) {
     if (typeof localStorage !== "undefined") localStorage.setItem("short-trip-sync-editor", syncEditor);
-    if (!options.silent) setSyncState((current) => ({ ...current, status: "syncing", message: "正在拉取云端" }));
+    if (!options.silent) setSyncState((current) => ({ ...current, status: "syncing", message: "正在拉取全行程" }));
     const result = await supabaseAdapter.pullTrip(trip.id);
     if (options.isCancelled?.()) return result;
     if (result.ok) {
@@ -221,7 +222,9 @@ function App() {
       setSyncState((current) => {
         const missingMessage = current.version
           ? `未发现新版本，仍显示第 ${current.version} 版`
-          : "云端暂无可拉取版本，可先推送当前";
+          : result.cleared
+            ? result.message
+            : "云端暂无可拉取版本，可先推送当前";
         return {
           ...current,
           status: result.missing ? current.status : "error",
@@ -229,12 +232,37 @@ function App() {
         };
       });
     }
-    if (!options.silent) setSavedToast(result.missing ? "云端暂无新版本，当前页面未被覆盖" : result.message);
+    if (!options.silent) setSavedToast(result.message);
     return result;
   }
 
   async function pullCloud() {
     return pullLatestCloud({ silent: false });
+  }
+
+  async function clearCloud() {
+    if (typeof localStorage !== "undefined") localStorage.setItem("short-trip-sync-editor", syncEditor);
+    const editor = syncEditor.trim() || "旅伴";
+    setSyncState((current) => ({ ...current, status: "syncing", message: "正在清空云端" }));
+    const result = await supabaseAdapter.clearTrip(trip.id, { updatedBy: editor });
+    if (result.ok) {
+      setSyncState({
+        status: supabaseAdapter.mode === "supabase" ? "dirty" : "demo",
+        version: 0,
+        dirty: true,
+        updatedAt: "",
+        updatedBy: editor,
+        message: "云端已清空，本机当前行程不会删除"
+      });
+    } else {
+      setSyncState((current) => ({
+        ...current,
+        status: "error",
+        message: result.message
+      }));
+    }
+    setSavedToast(result.ok ? "云端已清空，本机当前行程不会删除" : result.message);
+    return result;
   }
 
   return React.createElement(
@@ -292,7 +320,7 @@ function App() {
             React.createElement(PageHeader, { kicker: "DOCS", title: "凭证与常用", count: "离线可用" }),
             React.createElement(CollectionPanel, { trip, setTrip: updateTrip, selectedDay }),
             React.createElement(PhraseLauncher, { phrases: turkeyPhrases }),
-            React.createElement(CollaborationPanel, { trip, syncState, syncEditor, setSyncEditor, pushCloud, pullCloud })
+            React.createElement(CollaborationPanel, { trip, syncState, syncEditor, setSyncEditor, pushCloud, pullCloud, clearCloud })
           ),
           activeView === "mystic" && React.createElement(React.Fragment, null,
             React.createElement(PageHeader, { kicker: "LUCK", title: "玄学提示", count: selectedDay.title }),
@@ -1004,8 +1032,36 @@ function renderPlaceActions(place, mapLinks) {
 
 function FoodPanel({ trip, setTrip, selectedDay }) {
   const [draft, setDraft] = useState({ title: "", url: "" });
+  const [placesPreviewById, setPlacesPreviewById] = useState({});
   const foods = getDailyFoodRecommendations(trip, selectedDay);
   const restaurants = getDailyRestaurantLinks(trip, selectedDay);
+  const restaurantPreviewSignature = restaurants.map((restaurant) => `${restaurant.id}:${restaurant.title}:${restaurant.url}`).join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!restaurants.length) return () => {
+      cancelled = true;
+    };
+
+    Promise.all(restaurants.map(async (restaurant) => {
+      const meta = restaurant.googleMapsMeta ?? normalizeGoogleMapsPlace(restaurant.url || restaurant.title);
+      const preview = await fetchPlacePreview(createRestaurantPlaceQuery({ ...restaurant, googleMapsMeta: meta }));
+      return [restaurant.id, preview];
+    })).then((entries) => {
+      if (cancelled) return;
+      setPlacesPreviewById((current) => {
+        const next = { ...current };
+        for (const [id, preview] of entries) {
+          if (preview) next[id] = preview;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [restaurantPreviewSignature]);
 
   function addRestaurant() {
     const normalized = normalizeGoogleMapsPlace(draft.url || draft.title);
@@ -1061,7 +1117,7 @@ function FoodPanel({ trip, setTrip, selectedDay }) {
     ),
     React.createElement("div", { className: "restaurant-stack" },
       restaurants.map((restaurant) =>
-        React.createElement(RestaurantCard, { key: restaurant.id, restaurant })
+        React.createElement(RestaurantCard, { key: restaurant.id, restaurant, placePreview: placesPreviewById[restaurant.id] })
       )
     ),
     React.createElement(EditDrawer, { label: "编辑美食" },
@@ -1096,12 +1152,7 @@ function FoodRecommendationCard({ food }) {
   const cuisineInfo = inferCuisineInfo(food);
 
   return React.createElement("article", { className: "food-card" },
-    React.createElement(MapThumbnail, {
-      subject: { title: food.googleQuery || food.title, city: food.city },
-      label: food.city,
-      className: "food-map-thumbnail",
-      markerLabel: "F"
-    }),
+    React.createElement(FoodImage, { food, cuisineInfo }),
     React.createElement("span", null, food.city),
     React.createElement("strong", null, food.title),
     React.createElement("p", null, food.description),
@@ -1113,41 +1164,65 @@ function FoodRecommendationCard({ food }) {
   );
 }
 
-function RestaurantCard({ restaurant }) {
+function FoodImage({ food, cuisineInfo }) {
+  const imageUrl = food.imageUrl || getCuisineFallbackImage(cuisineInfo);
+  return React.createElement("figure", { className: "food-photo" },
+    React.createElement("img", { src: imageUrl, alt: food.title, loading: "lazy" }),
+    food.imageCredit && React.createElement("figcaption", null, food.imageCredit)
+  );
+}
+
+function RestaurantCard({ restaurant, placePreview }) {
   const meta = restaurant.googleMapsMeta ?? normalizeGoogleMapsPlace(restaurant.url || restaurant.title);
   const cuisineInfo = inferCuisineInfo({ ...restaurant, googleMapsMeta: meta });
-  const mapSubject = {
-    ...restaurant,
-    name: restaurant.title || meta.title,
-    address: meta.query,
-    latitude: meta.latitude,
-    longitude: meta.longitude,
-    googleMapsMeta: meta
-  };
+  const displayTitle = placePreview?.name || restaurant.title || meta.title;
+  const displayHref = placePreview?.googleMapsUri || restaurant.url || meta.href;
+  const detailChips = [
+    placePreview?.typeLabel,
+    placePreview?.ratingLabel && `评分 ${placePreview.ratingLabel}`,
+    placePreview?.priceLabel,
+    ...(placePreview?.serviceChips ?? [])
+  ].filter(Boolean);
 
   return React.createElement("article", { className: "restaurant-card" },
-    React.createElement(MapThumbnail, { subject: mapSubject, label: restaurant.city ?? "餐厅附近", className: "restaurant-map-thumbnail", markerLabel: "R" }),
+    React.createElement(RestaurantPhoto, { placePreview, cuisineInfo, title: displayTitle }),
     React.createElement("header", null,
       React.createElement(MapPin, { size: 17 }),
       React.createElement("div", null,
-        React.createElement("strong", null, restaurant.title || meta.title),
+        React.createElement("strong", null, displayTitle),
         React.createElement("span", null, restaurant.city ?? meta.query ?? "Google Maps")
       ),
-      React.createElement("a", { href: restaurant.url || meta.href, target: "_blank", rel: "noreferrer", title: "打开 Google Maps" },
+      React.createElement("a", { href: displayHref, target: "_blank", rel: "noreferrer", title: "打开 Google Maps" },
         React.createElement(ExternalLink, { size: 15 })
       )
     ),
     React.createElement("div", { className: "restaurant-meta-grid" },
-      React.createElement("span", null, "Google Maps"),
-      meta.latitude && meta.longitude
+      React.createElement("span", null, placePreview ? "Google Places" : "Google Maps"),
+      detailChips.length
+        ? React.createElement("span", null, detailChips.join(" · "))
+        : meta.latitude && meta.longitude
         ? React.createElement("span", null, `${meta.latitude.toFixed(4)}, ${meta.longitude.toFixed(4)}`)
         : React.createElement("span", null, "无 key 链接解析"),
       React.createElement("span", null, meta.query || restaurant.title)
     ),
     React.createElement("div", { className: "restaurant-cuisine-panel" },
       React.createElement("span", null, "大概菜式"),
-      React.createElement("p", null, cuisineInfo.summary),
+      React.createElement("p", null, placePreview?.editorialSummary || cuisineInfo.summary),
       React.createElement(CuisineChipList, { cuisineInfo })
+    )
+  );
+}
+
+function RestaurantPhoto({ placePreview, cuisineInfo, title }) {
+  const imageUrl = placePreview?.photoUrl || getCuisineFallbackImage(cuisineInfo);
+  return React.createElement("figure", { className: "restaurant-place-photo" },
+    React.createElement("img", { src: imageUrl, alt: title, loading: "lazy" }),
+    placePreview?.photoAttribution && React.createElement("figcaption", { className: "place-photo-attribution" },
+      `Google Places · ${placePreview.photoAttribution}`
+    ),
+    placePreview?.googleMapsUri && React.createElement("a", { className: "restaurant-google-detail", href: placePreview.googleMapsUri, target: "_blank", rel: "noreferrer" },
+      React.createElement(ExternalLink, { size: 13 }),
+      React.createElement("span", null, "Google 详情")
     )
   );
 }
@@ -1156,6 +1231,15 @@ function CuisineChipList({ cuisineInfo }) {
   return React.createElement("div", { className: "cuisine-chip-list" },
     cuisineInfo.chips.map((chip) => React.createElement("span", { key: chip }, chip))
   );
+}
+
+function getCuisineFallbackImage(cuisineInfo) {
+  const chips = cuisineInfo.chips.join(" ");
+  if (/海鲜|meze|烤鱼/.test(chips)) return "https://commons.wikimedia.org/wiki/Special:FilePath/Turkish%20Meze%20Plate.jpg?width=960";
+  if (/早餐|Menemen/.test(chips)) return "https://commons.wikimedia.org/wiki/Special:FilePath/Turkish%20breakfast.jpg?width=960";
+  if (/Gözleme|Pide/.test(chips)) return "https://commons.wikimedia.org/wiki/Special:FilePath/Gozleme%20at%20Manning%20Market.jpg?width=960";
+  if (/Kumru/.test(chips)) return "https://commons.wikimedia.org/wiki/Special:FilePath/Izmir%20kumru%20sandwich%201.jpg?width=960";
+  return "https://commons.wikimedia.org/wiki/Special:FilePath/TestiKebabGoreme.jpg?width=960";
 }
 
 function EditDrawer({ label = "编辑", children }) {
@@ -1504,7 +1588,7 @@ function CredentialCard({ asset }) {
   );
 }
 
-function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCloud, pullCloud }) {
+function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCloud, pullCloud, clearCloud }) {
   const [cloudConfig, setCloudConfig] = useState(() => readSavedCloudConfig());
   const isLocalDemo = supabaseAdapter.mode !== "supabase";
   const diagnosticItems = formatSyncDiagnosticItems(trip, syncState, supabaseAdapter.mode);
@@ -1551,16 +1635,21 @@ function CollaborationPanel({ trip, syncState, syncEditor, setSyncEditor, pushCl
     React.createElement("div", { className: "sync-action-row" },
       React.createElement("button", { className: "icon-button", onClick: pullCloud },
         React.createElement(CloudSun, { size: 18 }),
-        React.createElement("span", null, "拉取云端")
+        React.createElement("span", null, "拉取全行程")
       ),
       React.createElement("button", { className: "primary-button", onClick: pushCloud },
         React.createElement(Users, { size: 18 }),
-        React.createElement("span", null, "推送当前")
+        React.createElement("span", null, "推送全行程")
+      ),
+      React.createElement("button", { className: "sync-clear-button", onClick: clearCloud },
+        React.createElement(Trash2, { size: 18 }),
+        React.createElement("span", null, "清空云端")
       )
     ),
+    React.createElement("p", { className: "sync-scope-note" }, "拉取和推送都按全部日期同步；清空云端只重置服务器快照，本机当前行程不会删除。"),
     isLocalDemo && React.createElement("div", { className: "sync-help-card" },
       React.createElement("strong", null, "本机演示不会跨手机同步"),
-      React.createElement("p", null, "先在两台手机填同一组 Supabase 配置，刷新后由一台手机点“推送当前”，另一台手机点“拉取云端”。"),
+      React.createElement("p", null, "先在两台手机填同一组 Supabase 配置，刷新后由一台手机点“推送全行程”，另一台手机点“拉取全行程”。"),
       React.createElement("label", null,
         React.createElement("span", null, "Supabase URL"),
         React.createElement("input", {
