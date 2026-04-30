@@ -235,6 +235,9 @@ test("uses food photos for recommendations instead of map thumbnails", async () 
   const seed = await readFile(new URL("../src/data/tripSeed.js", import.meta.url), "utf8");
 
   assert.equal(source.includes("FoodImage"), true);
+  assert.equal(source.includes("foodPreviewById"), true);
+  assert.equal(source.includes("createFoodPlaceQuery"), true);
+  assert.equal(source.includes("placePreview?.photoUrl"), true);
   assert.equal(source.includes("food-photo"), true);
   assert.equal(source.includes("food.imageUrl"), true);
   assert.equal(source.includes("food-map-thumbnail"), false);

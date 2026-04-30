@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  createFoodPlaceQuery,
   createPlacePhotoUrl,
+  createRestaurantPlaceQuery,
   fetchPlacePreview,
   normalizePlacePreview
 } from "../src/lib/places.js";
@@ -14,6 +16,26 @@ test("creates a browser-usable Places Photo media URL", () => {
   assert.equal(url.pathname, "/v1/places/abc/photos/photo123/media");
   assert.equal(url.searchParams.get("maxWidthPx"), "720");
   assert.equal(url.searchParams.get("key"), GOOGLE_MAPS_API_KEY);
+});
+
+test("creates a focused Google Places query for a food recommendation", () => {
+  const query = createFoodPlaceQuery({
+    title: "Menemen 与土耳其茶",
+    city: "格雷梅",
+    googleQuery: "Menemen Goreme breakfast"
+  });
+
+  assert.equal(query, "Menemen Goreme breakfast");
+});
+
+test("creates a focused Google Places query for a restaurant link", () => {
+  const query = createRestaurantPlaceQuery({
+    title: "Pumpkin Restaurant",
+    city: "Göreme",
+    googleMapsMeta: { query: "Pumpkin Goreme Restaurant" }
+  });
+
+  assert.equal(query, "Pumpkin Goreme Restaurant, Pumpkin Restaurant, Göreme");
 });
 
 test("normalizes Places search results into restaurant preview data", () => {

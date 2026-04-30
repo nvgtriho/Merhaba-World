@@ -33,7 +33,7 @@ import {
   inferCuisineInfo,
   normalizeGoogleMapsPlace
 } from "./lib/maps.js";
-import { createRestaurantPlaceQuery, fetchPlacePreview } from "./lib/places.js";
+import { createFoodPlaceQuery, createRestaurantPlaceQuery, fetchPlacePreview } from "./lib/places.js";
 import { createAssistantLinks, createClockReminderLink, createClockReminderNote } from "./lib/assistantLinks.js";
 import { createIndexedDbStore } from "./lib/offlineStore.js";
 import {
@@ -1032,10 +1032,37 @@ function renderPlaceActions(place, mapLinks) {
 
 function FoodPanel({ trip, setTrip, selectedDay }) {
   const [draft, setDraft] = useState({ title: "", url: "" });
+  const [foodPreviewById, setFoodPreviewById] = useState({});
   const [placesPreviewById, setPlacesPreviewById] = useState({});
   const foods = getDailyFoodRecommendations(trip, selectedDay);
   const restaurants = getDailyRestaurantLinks(trip, selectedDay);
+  const foodPreviewSignature = foods.map((food) => `${food.id}:${food.title}:${food.googleQuery}:${food.city}`).join("|");
   const restaurantPreviewSignature = restaurants.map((restaurant) => `${restaurant.id}:${restaurant.title}:${restaurant.url}`).join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!foods.length) return () => {
+      cancelled = true;
+    };
+
+    Promise.all(foods.map(async (food) => {
+      const preview = await fetchPlacePreview(createFoodPlaceQuery(food));
+      return [food.id, preview];
+    })).then((entries) => {
+      if (cancelled) return;
+      setFoodPreviewById((current) => {
+        const next = { ...current };
+        for (const [id, preview] of entries) {
+          if (preview) next[id] = preview;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [foodPreviewSignature]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1112,7 +1139,7 @@ function FoodPanel({ trip, setTrip, selectedDay }) {
     React.createElement(SectionHeading, { icon: Utensils, title: "当地美食推荐", subtitle: "按当天城市筛选，也可从 Google Maps 粘贴餐厅" }),
     React.createElement("div", { className: "food-grid" },
       foods.map((food) =>
-        React.createElement(FoodRecommendationCard, { key: food.id, food })
+        React.createElement(FoodRecommendationCard, { key: food.id, food, placePreview: foodPreviewById[food.id] })
       )
     ),
     React.createElement("div", { className: "restaurant-stack" },
@@ -1148,11 +1175,11 @@ function FoodPanel({ trip, setTrip, selectedDay }) {
   );
 }
 
-function FoodRecommendationCard({ food }) {
+function FoodRecommendationCard({ food, placePreview }) {
   const cuisineInfo = inferCuisineInfo(food);
 
   return React.createElement("article", { className: "food-card" },
-    React.createElement(FoodImage, { food, cuisineInfo }),
+    React.createElement(FoodImage, { food, cuisineInfo, placePreview }),
     React.createElement("span", null, food.city),
     React.createElement("strong", null, food.title),
     React.createElement("p", null, food.description),
@@ -1164,11 +1191,14 @@ function FoodRecommendationCard({ food }) {
   );
 }
 
-function FoodImage({ food, cuisineInfo }) {
-  const imageUrl = food.imageUrl || getCuisineFallbackImage(cuisineInfo);
+function FoodImage({ food, cuisineInfo, placePreview }) {
+  const imageUrl = placePreview?.photoUrl || food.imageUrl || getCuisineFallbackImage(cuisineInfo);
+  const caption = placePreview?.photoAttribution
+    ? `Google Places · ${placePreview.photoAttribution}`
+    : food.imageCredit;
   return React.createElement("figure", { className: "food-photo" },
     React.createElement("img", { src: imageUrl, alt: food.title, loading: "lazy" }),
-    food.imageCredit && React.createElement("figcaption", null, food.imageCredit)
+    caption && React.createElement("figcaption", null, caption)
   );
 }
 

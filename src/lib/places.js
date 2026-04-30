@@ -92,6 +92,16 @@ export function createRestaurantPlaceQuery(restaurant = {}) {
     .join(", ");
 }
 
+export function createFoodPlaceQuery(food = {}) {
+  if (String(food.googleQuery ?? "").trim()) return String(food.googleQuery).trim();
+  return [
+    food.title,
+    food.city
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
 function priceLevelLabel(priceLevel) {
   const labels = {
     PRICE_LEVEL_FREE: "免费",
