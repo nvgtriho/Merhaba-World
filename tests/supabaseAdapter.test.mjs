@@ -269,7 +269,38 @@ test("local demo mode refuses stale pushes instead of overwriting newer cloud da
   assert.equal(stale.remoteVersion, 2);
 });
 
-test("pull always returns the highest version when multiple versions exist", async () => {
+test("push assigns next version based on highest existing version, ignoring cleared markers", async () => {
+  let allSnapshots = [
+    createTripSnapshot(baseTrip, { version: 1, updatedAt: "2026-05-01T08:00:00.000Z", updatedBy: "A" }),
+    createTripSnapshot({ ...baseTrip, name: "v2" }, { version: 2, updatedAt: "2026-05-01T09:00:00.000Z", updatedBy: "B" }),
+    createClearedTripSnapshot("turkey-2026", { updatedAt: "2026-05-01T10:00:00.000Z", updatedBy: "C" })
+  ];
+
+  const fakeClient = createFakeSupabaseClient({
+    select: (field, value) => {
+      return allSnapshots.find(s => s[field] === value);
+    },
+    upsert: (row) => {
+      allSnapshots = allSnapshots.filter(s => s.version !== row.version || s.id !== row.id);
+      allSnapshots.push(row);
+    }
+  });
+
+  const adapter = createSupabaseAdapter({
+    url: "https://example.supabase.co",
+    anonKey: "anon",
+    clientFactory: async () => fakeClient,
+    now: () => "2026-05-01T11:00:00.000Z"
+  });
+
+  const result = await adapter.pushTrip(baseTrip, { updatedBy: "D" });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.version, 3);
+  assert.equal(result.message, "已推送云端第 3 版");
+});
+
+
   let storedSnapshots = [];
   const fakeClient = {
     from() {

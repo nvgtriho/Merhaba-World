@@ -78,7 +78,30 @@ export function createSupabaseAdapter(config = {}) {
       };
     }
 
-    const nextVersion = (remote.version ?? 0) + 1;
+    // Query the highest version in all snapshots for this trip, accounting for cleared markers
+    let nextVersion = 1;
+    if (mode === "supabase") {
+      try {
+        const client = await getClient();
+        const { data: allVersions, error } = await client
+          .from(SNAPSHOT_TABLE)
+          .select("version")
+          .eq("id", trip.id)
+          .order("version", { ascending: false })
+          .limit(1);
+        
+        if (!error && allVersions && allVersions.length > 0) {
+          nextVersion = allVersions[0].version + 1;
+        }
+      } catch {
+        // Fallback to computed version based on remote pull result
+        nextVersion = (remote.version ?? 0) + 1;
+      }
+    } else {
+      // Local demo mode - use pulled version
+      nextVersion = (remote.version ?? 0) + 1;
+    }
+
     const row = createTripSnapshot(trip, {
       version: nextVersion,
       updatedAt: now(),
