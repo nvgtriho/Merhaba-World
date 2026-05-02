@@ -35,7 +35,7 @@ function createMemoryStorage() {
 }
 
 function createFakeSupabaseClient(options = {}) {
-  const { select: selectFn, upsert: upsertFn, storage = new Map() } = options;
+  const { select: selectFn, upsert: upsertFn, insert: insertFn, storage = new Map() } = options;
   
   return {
     from(tableName) {
@@ -73,6 +73,18 @@ function createFakeSupabaseClient(options = {}) {
         },
         upsert(row) {
           if (upsertFn) upsertFn(row);
+          return {
+            select() {
+              return {
+                async maybeSingle() {
+                  return { data: row, error: null };
+                }
+              };
+            }
+          };
+        },
+        insert(row) {
+          if (insertFn) insertFn(row);
           return {
             select() {
               return {
@@ -224,7 +236,7 @@ test("push after a cloud clear writes one complete all-days trip snapshot", asyn
     select: (field, id) => {
       return storedRow?.id === id ? storedRow : null;
     },
-    upsert: (row) => {
+    insert: (row) => {
       storedRow = row;
     }
   });
@@ -306,8 +318,7 @@ test("push assigns next version based on highest existing version, ignoring clea
             }
           };
         },
-        upsert(row) {
-          allSnapshots = allSnapshots.filter(s => s.version !== row.version || s.id !== row.id);
+        insert(row) {
           allSnapshots.push(row);
           return {
             select() {

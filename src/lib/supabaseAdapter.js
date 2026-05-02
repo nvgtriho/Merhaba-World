@@ -78,7 +78,7 @@ export function createSupabaseAdapter(config = {}) {
       };
     }
 
-    // Query the highest version in all snapshots for this trip, accounting for cleared markers
+    // Query the highest version in all snapshots for this trip, ignoring cleared markers (version 0)
     let nextVersion = 1;
     if (mode === "supabase") {
       try {
@@ -87,6 +87,7 @@ export function createSupabaseAdapter(config = {}) {
           .from(SNAPSHOT_TABLE)
           .select("version")
           .eq("id", trip.id)
+          .gt("version", 0)  // 忽略 cleared markers
           .order("version", { ascending: false })
           .limit(1);
         
@@ -139,7 +140,7 @@ export function createSupabaseAdapter(config = {}) {
     const client = await getClient();
     const { error } = await client
       .from(SNAPSHOT_TABLE)
-      .insert(row);
+      .upsert(row);
 
     if (error) return { ok: false, mode, tripId, message: `云端清空失败：${error.message}` };
     return { ok: true, mode, missing: true, cleared: true, tripId, message: "云端已清空" };
