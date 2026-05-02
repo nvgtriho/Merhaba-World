@@ -55,6 +55,8 @@ export function createSupabaseAdapter(config = {}) {
       .from(SNAPSHOT_TABLE)
       .select("*")
       .eq("id", tripId)
+      .order("version", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (error) return { ok: false, mode, tripId, message: `云端读取失败：${error.message}` };

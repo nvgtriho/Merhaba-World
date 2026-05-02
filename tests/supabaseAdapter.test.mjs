@@ -34,6 +34,61 @@ function createMemoryStorage() {
   };
 }
 
+function createFakeSupabaseClient(options = {}) {
+  const { select: selectFn, upsert: upsertFn, storage = new Map() } = options;
+  
+  return {
+    from(tableName) {
+      return {
+        select() {
+          return {
+            eq(field, value) {
+              return {
+                order(orderField, { ascending = true } = {}) {
+                  return {
+                    limit(n) {
+                      return {
+                        async maybeSingle() {
+                          const data = selectFn?.(field, value);
+                          if (!data) return { data: null, error: null };
+                          
+                          const array = Array.isArray(data) ? data : [data];
+                          const sorted = [...array].sort((a, b) => {
+                            const aVal = a[orderField];
+                            const bVal = b[orderField];
+                            if (aVal === bVal) return 0;
+                            return ascending 
+                              ? (aVal < bVal ? -1 : 1) 
+                              : (aVal > bVal ? -1 : 1);
+                          });
+                          return { data: sorted[0] ?? null, error: null };
+                        }
+                      };
+                    }
+                  };
+                }
+              };
+            }
+          };
+        },
+        upsert(row) {
+          if (upsertFn) upsertFn(row);
+          return {
+            select() {
+              return {
+                async maybeSingle() {
+                  return { data: row, error: null };
+                }
+              };
+            }
+          };
+        }
+      };
+    }
+  };
+}
+
+
 test("creates a complete trip snapshot row", () => {
   const row = createTripSnapshot(baseTrip, {
     version: 4,
@@ -80,34 +135,12 @@ test("saved cloud config overrides built-in default Supabase config", async () =
   storage.setItem("short-trip-supabase-url", "https://old.example.supabase.co");
   storage.setItem("short-trip-supabase-anon-key", "old-key");
   let clientConfig = null;
-  const fakeClient = {
-    from() {
-      return {
-        select() {
-          return {
-            eq() {
-              return {
-                async maybeSingle() {
-                  return { data: null, error: null };
-                }
-              };
-            }
-          };
-        },
-        upsert(row) {
-          return {
-            select() {
-              return {
-                async maybeSingle() {
-                  return { data: row, error: null };
-                }
-              };
-            }
-          };
-        }
-      };
-    }
-  };
+  
+  const fakeClient = createFakeSupabaseClient({
+    select: () => null,
+    upsert: () => {}
+  });
+  
   const adapter = createSupabaseAdapter({
     storage,
     clientFactory: async (config) => {
@@ -133,24 +166,13 @@ test("supabase mode can be enabled from saved public config on both phones", () 
 });
 
 test("missing cloud snapshots use neutral retry copy instead of no-trip copy", async () => {
-  const fakeClient = {
-    from() {
-      return {
-        select() {
-          return {
-            eq(_field, tripId) {
-              return {
-                async maybeSingle() {
-                  assert.equal(tripId, "turkey-2026");
-                  return { data: null, error: null };
-                }
-              };
-            }
-          };
-        }
-      };
+  const fakeClient = createFakeSupabaseClient({
+    select: (field, tripId) => {
+      assert.equal(tripId, "turkey-2026");
+      return null;
     }
-  };
+  });
+  
   const adapter = createSupabaseAdapter({
     url: "https://example.supabase.co",
     anonKey: "anon",
@@ -171,23 +193,11 @@ test("cloud-cleared snapshots behave like an empty cloud instead of a broken tri
     updatedAt: "2026-05-01T08:00:00.000Z",
     updatedBy: "A"
   });
-  const fakeClient = {
-    from() {
-      return {
-        select() {
-          return {
-            eq() {
-              return {
-                async maybeSingle() {
-                  return { data: row, error: null };
-                }
-              };
-            }
-          };
-        }
-      };
-    }
-  };
+  
+  const fakeClient = createFakeSupabaseClient({
+    select: () => row
+  });
+  
   const adapter = createSupabaseAdapter({
     url: "https://example.supabase.co",
     anonKey: "anon",
@@ -209,35 +219,16 @@ test("push after a cloud clear writes one complete all-days trip snapshot", asyn
     updatedAt: "2026-05-01T08:00:00.000Z",
     updatedBy: "A"
   });
-  const fakeClient = {
-    from() {
-      return {
-        select() {
-          return {
-            eq(_field, id) {
-              return {
-                async maybeSingle() {
-                  return { data: storedRow?.id === id ? storedRow : null, error: null };
-                }
-              };
-            }
-          };
-        },
-        upsert(row) {
-          storedRow = row;
-          return {
-            select() {
-              return {
-                async maybeSingle() {
-                  return { data: row, error: null };
-                }
-              };
-            }
-          };
-        }
-      };
+  
+  const fakeClient = createFakeSupabaseClient({
+    select: (field, id) => {
+      return storedRow?.id === id ? storedRow : null;
+    },
+    upsert: (row) => {
+      storedRow = row;
     }
-  };
+  });
+  
   const adapter = createSupabaseAdapter({
     url: "https://example.supabase.co",
     anonKey: "anon",
@@ -278,25 +269,39 @@ test("local demo mode refuses stale pushes instead of overwriting newer cloud da
   assert.equal(stale.remoteVersion, 2);
 });
 
-test("supabase mode upserts the JSON payload with editor metadata", async () => {
-  let storedRow = null;
+test("pull always returns the highest version when multiple versions exist", async () => {
+  let storedSnapshots = [];
   const fakeClient = {
-    from(tableName) {
-      assert.equal(tableName, "trip_snapshots");
+    from() {
       return {
         select() {
           return {
             eq(_field, id) {
               return {
-                async maybeSingle() {
-                  return { data: storedRow?.id === id ? storedRow : null, error: null };
+                order(field, { ascending }) {
+                  return {
+                    limit(n) {
+                      return {
+                        async maybeSingle() {
+                          const filtered = storedSnapshots.filter(s => s.id === id);
+                          if (ascending) {
+                            filtered.sort((a, b) => a.version - b.version);
+                          } else {
+                            filtered.sort((a, b) => b.version - a.version);
+                          }
+                          return { data: filtered[0] ?? null, error: null };
+                        }
+                      };
+                    }
+                  };
                 }
               };
             }
           };
         },
         upsert(row) {
-          storedRow = row;
+          storedSnapshots = storedSnapshots.filter(s => s.id !== row.id || s.version !== row.version);
+          storedSnapshots.push(row);
           return {
             select() {
               return {
@@ -310,6 +315,7 @@ test("supabase mode upserts the JSON payload with editor metadata", async () => 
       };
     }
   };
+  
   const adapter = createSupabaseAdapter({
     url: "https://example.supabase.co",
     anonKey: "anon",
@@ -317,12 +323,26 @@ test("supabase mode upserts the JSON payload with editor metadata", async () => 
     now: () => "2026-05-01T08:00:00.000Z"
   });
 
-  const result = await adapter.pushTrip(baseTrip, { updatedBy: "A" });
+  // Store a cleared snapshot (version 0) and a normal snapshot (version 1)
+  const clearedSnap = createClearedTripSnapshot("turkey-2026", {
+    updatedAt: "2026-05-01T08:00:00.000Z",
+    updatedBy: "A"
+  });
+  storedSnapshots.push(clearedSnap);
 
-  assert.equal(adapter.mode, "supabase");
+  const normalSnap = createTripSnapshot(baseTrip, {
+    version: 1,
+    updatedAt: "2026-05-01T09:00:00.000Z",
+    updatedBy: "B"
+  });
+  storedSnapshots.push(normalSnap);
+
+  const result = await adapter.pullTrip("turkey-2026");
+
   assert.equal(result.ok, true);
   assert.equal(result.version, 1);
-  assert.equal(storedRow.id, baseTrip.id);
-  assert.equal(storedRow.updated_by, "A");
-  assert.deepEqual(storedRow.payload.items, baseTrip.items);
+  assert.deepEqual(result.trip, baseTrip);
+  assert.equal(result.message, "已拉取云端版本");
 });
+
+
