@@ -116,7 +116,7 @@ export function createSupabaseAdapter(config = {}) {
     const client = await getClient();
     const { data, error } = await client
       .from(SNAPSHOT_TABLE)
-      .upsert(row)
+      .insert(row)
       .select()
       .maybeSingle();
 
@@ -139,7 +139,7 @@ export function createSupabaseAdapter(config = {}) {
     const client = await getClient();
     const { error } = await client
       .from(SNAPSHOT_TABLE)
-      .upsert(row);
+      .insert(row);
 
     if (error) return { ok: false, mode, tripId, message: `云端清空失败：${error.message}` };
     return { ok: true, mode, missing: true, cleared: true, tripId, message: "云端已清空" };

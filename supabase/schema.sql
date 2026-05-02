@@ -58,11 +58,12 @@ create table if not exists public.weather_snapshots (
 );
 
 create table if not exists public.trip_snapshots (
-  id text primary key,
+  id text not null,
+  version integer not null,
   payload jsonb not null,
-  version integer not null default 1,
   updated_at timestamptz not null default now(),
-  updated_by text not null default 'traveler'
+  updated_by text not null default 'traveler',
+  primary key (id, version)
 );
 
 alter table public.trips enable row level security;
