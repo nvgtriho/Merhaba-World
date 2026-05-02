@@ -276,15 +276,52 @@ test("push assigns next version based on highest existing version, ignoring clea
     createClearedTripSnapshot("turkey-2026", { updatedAt: "2026-05-01T10:00:00.000Z", updatedBy: "C" })
   ];
 
-  const fakeClient = createFakeSupabaseClient({
-    select: (field, value) => {
-      return allSnapshots.find(s => s[field] === value);
-    },
-    upsert: (row) => {
-      allSnapshots = allSnapshots.filter(s => s.version !== row.version || s.id !== row.id);
-      allSnapshots.push(row);
+  const fakeClient = {
+    from() {
+      return {
+        select() {
+          return {
+            eq(_field, id) {
+              return {
+                order(field, { ascending }) {
+                  return {
+                    limit(n) {
+                      // For select("version") queries, return array directly
+                      const filtered = allSnapshots.filter(s => s.id === id);
+                      const sorted = [...filtered].sort((a, b) => {
+                        return ascending ? a[field] - b[field] : b[field] - a[field];
+                      });
+                      const limited = sorted.slice(0, n);
+                      const result = { data: limited.map(s => ({ version: s.version })), error: null };
+                      // For pullTrip, we need maybeSingle
+                      result.maybeSingle = async () => {
+                        const data = limited[0] ? { ...limited[0], payload: limited[0] } : null;
+                        return { data, error: null };
+                      };
+                      return result;
+                    }
+                  };
+                }
+              };
+            }
+          };
+        },
+        upsert(row) {
+          allSnapshots = allSnapshots.filter(s => s.version !== row.version || s.id !== row.id);
+          allSnapshots.push(row);
+          return {
+            select() {
+              return {
+                async maybeSingle() {
+                  return { data: row, error: null };
+                }
+              };
+            }
+          };
+        }
+      };
     }
-  });
+  };
 
   const adapter = createSupabaseAdapter({
     url: "https://example.supabase.co",
@@ -300,7 +337,7 @@ test("push assigns next version based on highest existing version, ignoring clea
   assert.equal(result.message, "已推送云端第 3 版");
 });
 
-
+test("pull always returns the highest version when multiple versions exist", async () => {
   let storedSnapshots = [];
   const fakeClient = {
     from() {
