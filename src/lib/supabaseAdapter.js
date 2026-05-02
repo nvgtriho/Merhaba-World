@@ -35,8 +35,8 @@ export function createSupabaseAdapter(config = {}) {
   const storage = config.storage ?? runtimeWindow.localStorage;
   const storedUrl = readStorageValue(storage, SUPABASE_URL_STORAGE_KEY);
   const storedAnonKey = readStorageValue(storage, SUPABASE_ANON_KEY_STORAGE_KEY);
-  const url = config.url ?? runtimeWindow.__SUPABASE_URL__ ?? DEFAULT_SUPABASE_URL ?? storedUrl;
-  const anonKey = config.anonKey ?? runtimeWindow.__SUPABASE_ANON_KEY__ ?? DEFAULT_SUPABASE_ANON_KEY ?? storedAnonKey;
+  const url = config.url ?? runtimeWindow.__SUPABASE_URL__ ?? storedUrl ?? DEFAULT_SUPABASE_URL;
+  const anonKey = config.anonKey ?? runtimeWindow.__SUPABASE_ANON_KEY__ ?? storedAnonKey ?? DEFAULT_SUPABASE_ANON_KEY;
   const now = config.now ?? (() => new Date().toISOString());
   const mode = url && anonKey ? "supabase" : "local-demo";
 

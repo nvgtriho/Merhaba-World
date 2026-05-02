@@ -75,7 +75,7 @@ test("uses the bundled Supabase project by default for zero-config phone sync", 
   assert.equal(adapter.mode, "supabase");
 });
 
-test("bundled public config wins over stale saved phone config", async () => {
+test("saved cloud config overrides built-in default Supabase config", async () => {
   const storage = createMemoryStorage();
   storage.setItem("short-trip-supabase-url", "https://old.example.supabase.co");
   storage.setItem("short-trip-supabase-anon-key", "old-key");
@@ -118,8 +118,8 @@ test("bundled public config wins over stale saved phone config", async () => {
 
   await adapter.pushTrip(baseTrip, { updatedBy: "A" });
 
-  assert.equal(clientConfig.url, DEFAULT_SUPABASE_URL);
-  assert.equal(clientConfig.anonKey, DEFAULT_SUPABASE_ANON_KEY);
+  assert.equal(clientConfig.url, "https://old.example.supabase.co");
+  assert.equal(clientConfig.anonKey, "old-key");
 });
 
 test("supabase mode can be enabled from saved public config on both phones", () => {
