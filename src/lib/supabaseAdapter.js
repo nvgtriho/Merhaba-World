@@ -115,10 +115,9 @@ export function createSupabaseAdapter(config = {}) {
     }
 
     const client = await getClient();
-    const { data, error } = await client
+    const { error } = await client
       .from(SNAPSHOT_TABLE)
-      .insert(row)
-      .select()
+      .upsert(row);
       .maybeSingle();
 
     if (error) return { ok: false, mode, message: `云端同步失败：${error.message}` };
